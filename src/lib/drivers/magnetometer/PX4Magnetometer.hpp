@@ -31,51 +31,46 @@
  *
  ****************************************************************************/
 
+#pragma once
 
-#include <mathlib/math/filter/LowPassFilter2p.hpp>
-
-#include <drivers/device/integrator.h>
 #include <drivers/drv_mag.h>
 #include <drivers/drv_hrt.h>
-#include <lib/drivers/device/Device.hpp>
 #include <lib/cdev/CDev.hpp>
 #include <lib/conversion/rotation.h>
+#include <uORB/PublicationMulti.hpp>
 #include <uORB/topics/sensor_mag.h>
-#include <uORB/uORB.h>
 
 class PX4Magnetometer : public cdev::CDev
 {
-
 public:
-	PX4Magnetometer(const char *name, device::Device  *interface, uint8_t dev_type, enum Rotation rotation, float scale);
+	PX4Magnetometer(uint32_t device_id, enum Rotation rotation = ROTATION_NONE);
 	~PX4Magnetometer() override;
 
-	int	init() override;
-	int	ioctl(cdev::file_t *filp, int cmd, unsigned long arg) override;
+	bool external() { return _external; }
 
-	int publish(float x, float y, float z, float temperature);
+	void set_device_id(uint32_t device_id) { _device_id = device_id; }
+	void set_device_type(uint8_t devtype);
+	void set_error_count(uint32_t error_count) { _error_count = error_count; }
+	void increase_error_count() { _error_count++; }
+	void set_scale(float scale) { _scale = scale; }
+	void set_temperature(float temperature) { _temperature = temperature; }
+	void set_external(bool external) { _external = external; }
 
-	void configure_filter(float sample_freq, float cutoff_freq);
+	void update(const hrt_abstime &timestamp_sample, float x, float y, float z);
+
+	int get_class_instance() { return _class_device_instance; };
 
 private:
-	// Pointer to the communication interface
-	const device::Device *_interface{nullptr};
+	uORB::PublicationQueuedMulti<sensor_mag_s> _sensor_pub;
 
-	mag_calibration_s _cal{};
+	uint32_t		_device_id{0};
+	const enum Rotation	_rotation;
 
-	orb_advert_t _topic{nullptr};
+	float			_scale{1.f};
+	float			_temperature{NAN};
+	uint32_t		_error_count{0};
 
-	device::Device::DeviceId _device_id{};
-
-	int	_orb_class_instance{-1};
+	bool _external{false};
 
 	int _class_device_instance{-1};
-
-	enum Rotation _rotation {ROTATION_NONE};
-
-	float _scale{1.0f};
-
-	math::LowPassFilter2p _filter_x{100, 20};
-	math::LowPassFilter2p _filter_y{100, 20};
-	math::LowPassFilter2p _filter_z{100, 20};
 };

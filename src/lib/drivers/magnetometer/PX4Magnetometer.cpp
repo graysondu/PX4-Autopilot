@@ -34,118 +34,59 @@
 
 #include "PX4Magnetometer.hpp"
 
-PX4Magnetometer::PX4Magnetometer(const char *path, device::Device  *interface, uint8_t dev_type, enum Rotation rotation,
-				 float scale) :
-	CDev(path),
-	_interface(interface)
-{
-	_device_id.devid = _interface->get_device_id();
-	// _device_id.devid_s.bus_type = (device::Device::DeviceBusType)_interface->get_device_bus_type();
-	// _device_id.devid_s.bus = _interface->get_device_bus();
-	// _device_id.devid_s.address = _interface->get_device_address();
-	_device_id.devid_s.devtype = dev_type;
+#include <lib/drivers/device/Device.hpp>
 
-	CDev::init();
+PX4Magnetometer::PX4Magnetometer(uint32_t device_id, enum Rotation rotation) :
+	CDev(nullptr),
+	_sensor_pub{ORB_ID(sensor_mag)},
+	_device_id{device_id},
+	_rotation{rotation}
+{
+	// advertise immediately to keep instance numbering in sync
+	_sensor_pub.advertise();
 
 	_class_device_instance = register_class_devname(MAG_BASE_DEVICE_PATH);
-
-	_rotation = rotation;
-	_scale = scale;
-
-	_cal.x_offset = 0;
-	_cal.x_scale  = 1.0f;
-	_cal.y_offset = 0;
-	_cal.y_scale  = 1.0f;
-	_cal.z_offset = 0;
-	_cal.z_scale  = 1.0f;
 }
 
 PX4Magnetometer::~PX4Magnetometer()
 {
-	if (_topic != nullptr) {
-		orb_unadvertise(_topic);
-	}
-}
-
-int PX4Magnetometer::init()
-{
-	mag_report report{};
-	report.device_id = _device_id.devid;
-
-	if (_topic == nullptr) {
-		_topic = orb_advertise_multi(ORB_ID(sensor_mag), &report, &_orb_class_instance, ORB_PRIO_HIGH - 1);
-
-		if (_topic == nullptr) {
-			PX4_ERR("Advertise failed.");
-			return PX4_ERROR;
-		}
+	if (_class_device_instance != -1) {
+		unregister_class_devname(MAG_BASE_DEVICE_PATH, _class_device_instance);
 	}
 
-	return PX4_OK;
+	_sensor_pub.unadvertise();
 }
 
-int PX4Magnetometer::ioctl(cdev::file_t *filp, int cmd, unsigned long arg)
+void PX4Magnetometer::set_device_type(uint8_t devtype)
 {
-	switch (cmd) {
-	case MAGIOCSSCALE:
-		// Copy scale in.
-		memcpy(&_cal, (struct mag_calibration_s *) arg, sizeof(_cal));
-		return OK;
+	// current DeviceStructure
+	union device::Device::DeviceId device_id;
+	device_id.devid = _device_id;
 
-	case MAGIOCGSCALE:
-		// Copy scale out.
-		memcpy((struct mag_calibration_s *) arg, &_cal, sizeof(_cal));
-		return OK;
+	// update to new device type
+	device_id.devid_s.devtype = devtype;
 
-	case DEVIOCGDEVICEID:
-		return _device_id.devid;
-
-	default:
-		// Give it to the superclass.
-		return CDev::ioctl(filp, cmd, arg);
-	}
+	// copy back
+	_device_id = device_id.devid;
 }
 
-void PX4Magnetometer::configure_filter(float sample_freq, float cutoff_freq)
+void PX4Magnetometer::update(const hrt_abstime &timestamp_sample, float x, float y, float z)
 {
-	_filter_x.set_cutoff_frequency(sample_freq, cutoff_freq);
-	_filter_y.set_cutoff_frequency(sample_freq, cutoff_freq);
-	_filter_z.set_cutoff_frequency(sample_freq, cutoff_freq);
-}
+	sensor_mag_s report;
+	report.timestamp_sample = timestamp_sample;
+	report.device_id = _device_id;
+	report.temperature = _temperature;
+	report.error_count = _error_count;
 
-// @TODO: use fixed point math to reclaim CPU usage
-int PX4Magnetometer::publish(float x, float y, float z, float temperature)
-{
-	sensor_mag_s report{};
-
-	report.device_id   = _device_id.devid;
-	report.error_count = 0;
-	report.scaling 	   = _scale;
-	report.timestamp   = hrt_absolute_time();
-	report.temperature = temperature;
-	report.is_external = false;
-
-
-	// Raw values (ADC units 0 - 65535)
-	report.x_raw = x;
-	report.y_raw = y;
-	report.z_raw = z;
-
-	// Apply the rotation.
+	// Apply rotation (before scaling)
 	rotate_3f(_rotation, x, y, z);
 
-	// Apply FS range scale and the calibrating offset/scale
-	x = ((x * _scale) - _cal.x_offset) * _cal.x_scale;
-	y = ((y * _scale) - _cal.y_offset) * _cal.y_scale;
-	z = ((z * _scale) - _cal.z_offset) * _cal.z_scale;
+	report.x = x * _scale;
+	report.y = y * _scale;
+	report.z = z * _scale;
 
-	// Filtered values
-	report.x = _filter_x.apply(x);
-	report.y = _filter_y.apply(y);
-	report.z = _filter_z.apply(z);
+	report.is_external = _external;
 
-	poll_notify(POLLIN);
-	orb_publish(ORB_ID(sensor_mag), _topic, &report);
-
-	return PX4_OK;
+	report.timestamp = hrt_absolute_time();
+	_sensor_pub.publish(report);
 }

@@ -33,95 +33,60 @@
 
 #include "uORBDeviceNode.hpp"
 
-#include "uORBDeviceNode.hpp"
 #include "uORBUtils.hpp"
 #include "uORBManager.hpp"
+
+#include "SubscriptionCallback.hpp"
 
 #ifdef ORB_COMMUNICATOR
 #include "uORBCommunicator.hpp"
 #endif /* ORB_COMMUNICATOR */
 
-uORB::DeviceNode::SubscriberData *uORB::DeviceNode::filp_to_sd(cdev::file_t *filp)
-{
-#ifndef __PX4_NUTTX
-
-	if (!filp) {
-		return nullptr;
-	}
-
-#endif
-	return (SubscriberData *)(filp->f_priv);
-}
+static uORB::SubscriptionInterval *filp_to_subscription(cdev::file_t *filp) { return static_cast<uORB::SubscriptionInterval *>(filp->f_priv); }
 
 uORB::DeviceNode::DeviceNode(const struct orb_metadata *meta, const uint8_t instance, const char *path,
-			     uint8_t priority, uint8_t queue_size) :
+			     uint8_t queue_size) :
 	CDev(path),
 	_meta(meta),
 	_instance(instance),
-	_priority(priority),
 	_queue_size(queue_size)
 {
 }
 
 uORB::DeviceNode::~DeviceNode()
 {
-	if (_data != nullptr) {
-		delete[] _data;
-	}
+	delete[] _data;
+
+	CDev::unregister_driver_and_memory();
 }
 
 int
 uORB::DeviceNode::open(cdev::file_t *filp)
 {
-	int ret;
-
 	/* is this a publisher? */
 	if (filp->f_oflags == PX4_F_WRONLY) {
 
-		/* become the publisher if we can */
 		lock();
-
-		if (_publisher == 0) {
-			_publisher = px4_getpid();
-			ret = PX4_OK;
-
-		} else {
-			ret = -EBUSY;
-		}
-
+		mark_as_advertised();
 		unlock();
 
 		/* now complete the open */
-		if (ret == PX4_OK) {
-			ret = CDev::open(filp);
-
-			/* open failed - not the publisher anymore */
-			if (ret != PX4_OK) {
-				_publisher = 0;
-			}
-		}
-
-		return ret;
+		return CDev::open(filp);
 	}
 
 	/* is this a new subscriber? */
 	if (filp->f_oflags == PX4_F_RDONLY) {
 
 		/* allocate subscriber data */
-		SubscriberData *sd = new SubscriberData{};
+		SubscriptionInterval *sd = new SubscriptionInterval(_meta, 0, _instance);
 
 		if (nullptr == sd) {
 			return -ENOMEM;
 		}
 
-		/* If there were any previous publications, allow the subscriber to read them */
-		sd->generation = _generation - (_queue_size < _generation ? _queue_size : _generation);
-
 		filp->f_priv = (void *)sd;
 
-		ret = CDev::open(filp);
-
-		add_internal_subscriber();
+		int ret = CDev::open(filp);
 
 		if (ret != PX4_OK) {
 			PX4_ERR("CDev::open failed");
@@ -142,79 +107,64 @@ uORB::DeviceNode::open(cdev::file_t *filp)
 int
 uORB::DeviceNode::close(cdev::file_t *filp)
 {
-	/* is this the publisher closing? */
-	if (px4_getpid() == _publisher) {
-		_publisher = 0;
-
-	} else {
-		SubscriberData *sd = filp_to_sd(filp);
-
-		if (sd != nullptr) {
-			if (sd->update_interval) {
-				hrt_cancel(&sd->update_interval->update_call);
-			}
-
-			remove_internal_subscriber();
-
-			delete sd;
-			sd = nullptr;
-		}
+	if (filp->f_oflags == PX4_F_RDONLY) { /* subscriber */
+		SubscriptionInterval *sd = filp_to_subscription(filp);
+		delete sd;
 	}
 
 	return CDev::close(filp);
 }
 
+bool
+uORB::DeviceNode::copy(void *dst, unsigned &generation)
+{
+	if ((dst != nullptr) && (_data != nullptr)) {
+		if (_queue_size == 1) {
+			ATOMIC_ENTER;
+			memcpy(dst, _data, _meta->o_size);
+			generation = _generation.load();
+			ATOMIC_LEAVE;
+			return true;
+
+		} else {
+			ATOMIC_ENTER;
+			const unsigned current_generation = _generation.load();
+
+			if (current_generation > generation + _queue_size) {
+				// Reader is too far behind: some messages are lost
+				generation = current_generation - _queue_size;
+			}
+
+			if ((current_generation == generation) && (generation > 0)) {
+				/* The subscriber already read the latest message, but nothing new was published yet.
+				* Return the previous message
+				*/
+				--generation;
+			}
+
+			memcpy(dst, _data + (_meta->o_size * (generation % _queue_size)), _meta->o_size);
+			ATOMIC_LEAVE;
+
+			if (generation < current_generation) {
+				++generation;
+			}
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
 ssize_t
 uORB::DeviceNode::read(cdev::file_t *filp, char *buffer, size_t buflen)
 {
-	SubscriberData *sd = (SubscriberData *)filp_to_sd(filp);
-
-	/* if the object has not been written yet, return zero */
-	if (_data == nullptr) {
-		return 0;
-	}
-
 	/* if the caller's buffer is the wrong size, that's an error */
 	if (buflen != _meta->o_size) {
 		return -EIO;
 	}
 
-	/*
-	 * Perform an atomic copy & state update
-	 */
-	ATOMIC_ENTER;
-
-	if (_generation > sd->generation + _queue_size) {
-		/* Reader is too far behind: some messages are lost */
-		_lost_messages += _generation - (sd->generation + _queue_size);
-		sd->generation = _generation - _queue_size;
-	}
-
-	if (_generation == sd->generation && sd->generation > 0) {
-		/* The subscriber already read the latest message, but nothing new was published yet.
-		 * Return the previous message
-		 */
-		--sd->generation;
-	}
-
-	/* if the caller doesn't want the data, don't give it to them */
-	if (nullptr != buffer) {
-		memcpy(buffer, _data + (_meta->o_size * (sd->generation % _queue_size)), _meta->o_size);
-	}
-
-	if (sd->generation < _generation) {
-		++sd->generation;
-	}
-
-	/*
-	 * Clear the flag that indicates that an update has been reported, as
-	 * we have just collected it.
-	 */
-	sd->set_update_reported(false);
-
-	ATOMIC_LEAVE;
-
-	return _meta->o_size;
+	return filp_to_subscription(filp)->copy(buffer) ? _meta->o_size : 0;
 }
 
 ssize_t
@@ -230,9 +180,11 @@ uORB::DeviceNode::write(cdev::file_t *filp, const char *buffer, size_t buflen)
 	 * Note that filp will usually be NULL.
 	 */
 	if (nullptr == _data) {
+
 #ifdef __PX4_NUTTX
 
 		if (!up_interrupt_context()) {
+#endif /* __PX4_NUTTX */
 
 			lock();
 
@@ -242,18 +194,11 @@ uORB::DeviceNode::write(cdev::file_t *filp, const char *buffer, size_t buflen)
 			}
 
 			unlock();
+
+#ifdef __PX4_NUTTX
 		}
 
-#else
-		lock();
-
-		/* re-check size */
-		if (nullptr == _data) {
-			_data = new uint8_t[_meta->o_size * _queue_size];
-		}
-
-		unlock();
-#endif
+#endif /* __PX4_NUTTX */
 
 		/* failed or could not allocate */
 		if (nullptr == _data) {
@@ -268,14 +213,15 @@ uORB::DeviceNode::write(cdev::file_t *filp, const char *buffer, size_t buflen)
 
 	/* Perform an atomic copy. */
 	ATOMIC_ENTER;
-	memcpy(_data + (_meta->o_size * (_generation % _queue_size)), buffer, _meta->o_size);
-
-	/* update the timestamp and generation count */
-	_last_update = hrt_absolute_time();
 	/* wrap-around happens after ~49 days, assuming a publisher rate of 1 kHz */
-	_generation++;
+	unsigned generation = _generation.fetch_add(1);
 
-	_published = true;
+	memcpy(_data + (_meta->o_size * (generation % _queue_size)), buffer, _meta->o_size);
+
+	// callbacks
+	for (auto item : _callbacks) {
+		item->call();
+	}
 
 	ATOMIC_LEAVE;
 
@@ -288,90 +234,37 @@ uORB::DeviceNode::write(cdev::file_t *filp, const char *buffer, size_t buflen)
 int
 uORB::DeviceNode::ioctl(cdev::file_t *filp, int cmd, unsigned long arg)
 {
-	SubscriberData *sd = filp_to_sd(filp);
-
 	switch (cmd) {
-	case ORBIOCLASTUPDATE: {
+	case ORBIOCUPDATED: {
 			ATOMIC_ENTER;
-			*(hrt_abstime *)arg = _last_update;
+			*(bool *)arg = filp_to_subscription(filp)->updated();
 			ATOMIC_LEAVE;
 			return PX4_OK;
 		}
 
-	case ORBIOCUPDATED:
-#ifndef __PX4_NUTTX
-		lock();
-#endif
-		*(bool *)arg = appears_updated(sd);
-#ifndef __PX4_NUTTX
-		unlock();
-#endif
+	case ORBIOCSETINTERVAL:
+		filp_to_subscription(filp)->set_interval_us(arg);
 		return PX4_OK;
-
-	case ORBIOCSETINTERVAL: {
-			int ret = PX4_OK;
-			lock();
-
-			if (arg == 0) {
-				if (sd->update_interval) {
-					delete (sd->update_interval);
-					sd->update_interval = nullptr;
-				}
-
-			} else {
-				if (sd->update_interval) {
-					sd->update_interval->interval = arg;
-#ifndef __PX4_NUTTX
-					sd->update_interval->last_update = hrt_absolute_time();
-#endif
-
-				} else {
-					sd->update_interval = new UpdateIntervalData();
-
-					if (sd->update_interval) {
-						memset(&sd->update_interval->update_call, 0, sizeof(hrt_call));
-						sd->update_interval->interval = arg;
-#ifndef __PX4_NUTTX
-						sd->update_interval->last_update = hrt_absolute_time();
-#endif
-
-					} else {
-						ret = -ENOMEM;
-					}
-				}
-			}
-
-			unlock();
-			return ret;
-		}
 
 	case ORBIOCGADVERTISER:
 		*(uintptr_t *)arg = (uintptr_t)this;
 		return PX4_OK;
 
-	case ORBIOCGPRIORITY:
-		*(int *)arg = get_priority();
-		return PX4_OK;
-
-	case ORBIOCSETQUEUESIZE:
-		//no need for locking here, since this is used only during the advertisement call,
-		//and only one advertiser is allowed to open the DeviceNode at the same time.
-		return update_queue_size(arg);
-
-	case ORBIOCGETINTERVAL:
-		if (sd->update_interval) {
-			*(unsigned *)arg = sd->update_interval->interval;
-
-		} else {
-			*(unsigned *)arg = 0;
+	case ORBIOCSETQUEUESIZE: {
+			lock();
+			int ret = update_queue_size(arg);
+			unlock();
+			return ret;
 		}
 
-		return OK;
+	case ORBIOCGETINTERVAL:
+		*(unsigned *)arg = filp_to_subscription(filp)->get_interval_us();
+		return PX4_OK;
 
-	case ORBIOCISPUBLISHED:
-		*(unsigned long *)arg = _published;
+	case ORBIOCISADVERTISED:
+		*(unsigned long *)arg = _advertised;
 
-		return OK;
+		return PX4_OK;
 
 	default:
 		/* give it to the superclass */
@@ -447,13 +340,13 @@ int uORB::DeviceNode::unadvertise(orb_advert_t handle)
 	 * of subscribers and publishers. But we also do not have a leak since future
 	 * publishers reuse the same DeviceNode object.
 	 */
-	devnode->_published = false;
+	devnode->_advertised = false;
 
 	return PX4_OK;
 }
 
 #ifdef ORB_COMMUNICATOR
-int16_t uORB::DeviceNode::topic_advertised(const orb_metadata *meta, int priority)
+int16_t uORB::DeviceNode::topic_advertised(const orb_metadata *meta)
 {
 	uORBCommunicator::IChannel *ch = uORB::Manager::get_instance()->get_uorb_communicator();
 
@@ -466,7 +359,7 @@ int16_t uORB::DeviceNode::topic_advertised(const orb_metadata *meta, int priorit
 
 /*
 //TODO: Check if we need this since we only unadvertise when things all shutdown and it doesn't actually remove the device
-int16_t uORB::DeviceNode::topic_unadvertised(const orb_metadata *meta, int priority)
+int16_t uORB::DeviceNode::topic_unadvertised(const orb_metadata *meta)
 {
 	uORBCommunicator::IChannel *ch = uORB::Manager::get_instance()->get_uorb_communicator();
 	if (ch != nullptr && meta != nullptr) {
@@ -477,210 +370,40 @@ int16_t uORB::DeviceNode::topic_unadvertised(const orb_metadata *meta, int prior
 */
 #endif /* ORB_COMMUNICATOR */
 
-pollevent_t
+px4_pollevent_t
 uORB::DeviceNode::poll_state(cdev::file_t *filp)
 {
-	SubscriberData *sd = filp_to_sd(filp);
-
-	/*
-	 * If the topic appears updated to the subscriber, say so.
-	 */
-	if (appears_updated(sd)) {
-		return POLLIN;
-	}
-
-	return 0;
+	// If the topic appears updated to the subscriber, say so.
+	return filp_to_subscription(filp)->updated() ? POLLIN : 0;
 }
 
 void
-uORB::DeviceNode::poll_notify_one(px4_pollfd_struct_t *fds, pollevent_t events)
+uORB::DeviceNode::poll_notify_one(px4_pollfd_struct_t *fds, px4_pollevent_t events)
 {
-	SubscriberData *sd = filp_to_sd((cdev::file_t *)fds->priv);
-
-	/*
-	 * If the topic looks updated to the subscriber, go ahead and notify them.
-	 */
-	if (appears_updated(sd)) {
+	// If the topic looks updated to the subscriber, go ahead and notify them.
+	if (filp_to_subscription((cdev::file_t *)fds->priv)->updated()) {
 		CDev::poll_notify_one(fds, events);
 	}
 }
 
-#ifdef __PX4_NUTTX
 bool
-uORB::DeviceNode::appears_updated(SubscriberData *sd)
+uORB::DeviceNode::print_statistics(int max_topic_length)
 {
-	/* assume it doesn't look updated */
-	bool ret = false;
-
-	/* avoid racing between interrupt and non-interrupt context calls */
-	irqstate_t state = px4_enter_critical_section();
-
-	/* check if this topic has been published yet, if not bail out */
-	if (_data == nullptr) {
-		ret = false;
-		goto out;
-	}
-
-	/*
-	 * If the subscriber's generation count matches the update generation
-	 * count, there has been no update from their perspective; if they
-	 * don't match then we might have a visible update.
-	 */
-	while (sd->generation != _generation) {
-
-		/*
-		 * Handle non-rate-limited subscribers.
-		 */
-		if (sd->update_interval == nullptr) {
-			ret = true;
-			break;
-		}
-
-		/*
-		 * If we have previously told the subscriber that there is data,
-		 * and they have not yet collected it, continue to tell them
-		 * that there has been an update.  This mimics the non-rate-limited
-		 * behaviour where checking / polling continues to report an update
-		 * until the topic is read.
-		 */
-		if (sd->update_reported()) {
-			ret = true;
-			break;
-		}
-
-		/*
-		 * If the interval timer is still running, the topic should not
-		 * appear updated, even though at this point we know that it has.
-		 * We have previously been through here, so the subscriber
-		 * must have collected the update we reported, otherwise
-		 * update_reported would still be true.
-		 */
-		if (!hrt_called(&sd->update_interval->update_call)) {
-			break;
-		}
-
-		/*
-		 * Make sure that we don't consider the topic to be updated again
-		 * until the interval has passed once more by restarting the interval
-		 * timer and thereby re-scheduling a poll notification at that time.
-		 */
-		hrt_call_after(&sd->update_interval->update_call,
-			       sd->update_interval->interval,
-			       &uORB::DeviceNode::update_deferred_trampoline,
-			       (void *)this);
-
-		/*
-		 * Remember that we have told the subscriber that there is data.
-		 */
-		sd->set_update_reported(true);
-		ret = true;
-
-		break;
-	}
-
-out:
-	px4_leave_critical_section(state);
-
-	/* consider it updated */
-	return ret;
-}
-
-#else
-
-bool
-uORB::DeviceNode::appears_updated(SubscriberData *sd)
-{
-	/* assume it doesn't look updated */
-	bool ret = false;
-
-	/* check if this topic has been published yet, if not bail out */
-	if (_data == nullptr) {
-		return false;
-	}
-
-	/*
-	 * If the subscriber's generation count matches the update generation
-	 * count, there has been no update from their perspective; if they
-	 * don't match then we might have a visible update.
-	 */
-	while (sd->generation != _generation) {
-
-		/*
-		 * Handle non-rate-limited subscribers.
-		 */
-		if (sd->update_interval == nullptr) {
-			ret = true;
-			break;
-		}
-
-		/*
-		 * If we have previously told the subscriber that there is data,
-		 * and they have not yet collected it, continue to tell them
-		 * that there has been an update.  This mimics the non-rate-limited
-		 * behaviour where checking / polling continues to report an update
-		 * until the topic is read.
-		 */
-		if (sd->update_reported()) {
-			ret = true;
-			break;
-		}
-
-		// If we have not yet reached the deadline, then assume that we can ignore any
-		// newly received data.
-		if (sd->update_interval->last_update + sd->update_interval->interval > hrt_absolute_time()) {
-			break;
-		}
-
-		/*
-		 * Remember that we have told the subscriber that there is data.
-		 */
-		sd->set_update_reported(true);
-		sd->update_interval->last_update = hrt_absolute_time();
-		ret = true;
-
-		break;
-	}
-
-	return ret;
-}
-#endif /* ifdef __PX4_NUTTX */
-
-void
-uORB::DeviceNode::update_deferred()
-{
-	/*
-	 * Instigate a poll notification; any subscribers whose intervals have
-	 * expired will be woken.
-	 */
-	poll_notify(POLLIN);
-}
-
-void
-uORB::DeviceNode::update_deferred_trampoline(void *arg)
-{
-	uORB::DeviceNode *node = (uORB::DeviceNode *)arg;
-
-	node->update_deferred();
-}
-
-bool
-uORB::DeviceNode::print_statistics(bool reset)
-{
-	if (!_lost_messages) {
+	if (!_advertised) {
 		return false;
 	}
 
 	lock();
-	//This can be wrong: if a reader never reads, _lost_messages will not be increased either
-	uint32_t lost_messages = _lost_messages;
 
-	if (reset) {
-		_lost_messages = 0;
-	}
+	const uint8_t instance = get_instance();
+	const int8_t sub_count = subscriber_count();
+	const uint8_t queue_size = get_queue_size();
 
 	unlock();
 
-	PX4_INFO("%s: %i", _meta->o_name, lost_messages);
+	PX4_INFO_RAW("%-*s %2i %4i %2i %4i %s\n", max_topic_length, get_meta()->o_name, (int)instance, (int)sub_count,
+		     queue_size, get_meta()->o_size, get_devname());
+
 	return true;
 }
 
@@ -781,4 +504,34 @@ int uORB::DeviceNode::update_queue_size(unsigned int queue_size)
 
 	_queue_size = queue_size;
 	return PX4_OK;
+}
+
+bool
+uORB::DeviceNode::register_callback(uORB::SubscriptionCallback *callback_sub)
+{
+	if (callback_sub != nullptr) {
+		ATOMIC_ENTER;
+
+		// prevent duplicate registrations
+		for (auto existing_callbacks : _callbacks) {
+			if (callback_sub == existing_callbacks) {
+				ATOMIC_LEAVE;
+				return true;
+			}
+		}
+
+		_callbacks.add(callback_sub);
+		ATOMIC_LEAVE;
+		return true;
+	}
+
+	return false;
+}
+
+void
+uORB::DeviceNode::unregister_callback(uORB::SubscriptionCallback *callback_sub)
+{
+	ATOMIC_ENTER;
+	_callbacks.remove(callback_sub);
+	ATOMIC_LEAVE;
 }

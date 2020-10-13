@@ -44,7 +44,7 @@
  *
  * @reboot_required true
  * @min 0
- * @max 99999
+ * @max 9999999
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_AUTOSTART, 0);
@@ -56,21 +56,28 @@ PARAM_DEFINE_INT32(SYS_AUTOSTART, 0);
  * Platform-specific values are used if available.
  * RC* parameters are preserved.
  *
- * @min 0
- * @max 1
  * @value 0 Keep parameters
  * @value 1 Reset parameters
+ * @value 2 Reload airframe parameters
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_AUTOCONFIG, 0);
 
 /**
- * Enable HITL mode on next boot
+ * Enable HITL/SIH mode on next boot
  *
- * While enabled the system will boot in HITL mode and not enable all sensors and checks.
- * When disabled the same vehicle can be normally flown outdoors.
+ * While enabled the system will boot in Hardware-In-The-Loop (HITL)
+ * or Simulation-In-Hardware (SIH) mode and not enable all sensors and checks.
+ * When disabled the same vehicle can be flown normally.
  *
- * @boolean
+ * Set to 'external HITL', if the system should perform as if it were a real
+ * vehicle (the only difference to a real system is then only the parameter
+ * value, which can be used for log analysis).
+ *
+ * @value -1 external HITL
+ * @value 0 HITL and SIH disabled
+ * @value 1 HITL enabled
+ * @value 2 SIH enabled
  * @reboot_required true
  *
  * @group System
@@ -98,55 +105,22 @@ PARAM_DEFINE_INT32(SYS_RESTART_TYPE, 2);
  *
  * Set the group of estimators used for multicopters and VTOLs
  *
- * @value 1 local_position_estimator, attitude_estimator_q
- * @value 2 ekf2
+ * @value 1 local_position_estimator, attitude_estimator_q (unsupported)
+ * @value 2 ekf2 (recommended)
+ * @value 3 Q attitude estimator (no position)
  *
- * @min 1
- * @max 2
  * @reboot_required true
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_MC_EST_GROUP, 2);
 
 /**
- * TELEM2 as companion computer link (deprecated)
- *
- * This parameter is deprecated and will be removed after 1.9.0. Use the generic serial
- * configuration parameters instead (e.g. MAV_0_CONFIG, MAV_0_MODE, etc.).
- *
- * @value 0 Disabled
- * @value 10 FrSky Telemetry
- * @value 20 Crazyflie (Syslink)
- * @value 921600 Companion Link (921600 baud, 8N1)
- * @value 57600 Companion Link (57600 baud, 8N1)
- * @value 1500000 Companion Link (1500000 baud, 8N1)
- * @value 157600 OSD (57600 baud, 8N1)
- * @value 257600 Command Receiver (57600 baud, 8N1)
- * @value 319200 Normal Telemetry (19200 baud, 8N1)
- * @value 338400 Normal Telemetry (38400 baud, 8N1)
- * @value 357600 Normal Telemetry (57600 baud, 8N1)
- * @value 3115200 Normal Telemetry (115200 baud, 8N1)
- * @value 4115200 Iridium Telemetry (115200 baud, 8N1)
- * @value 519200 Minimal Telemetry (19200 baud, 8N1)
- * @value 538400 Minimal Telemetry (38400 baud, 8N1)
- * @value 557600 Minimal Telemetry (57600 baud, 8N1)
- * @value 5115200 Minimal Telemetry (115200 baud, 8N1)
- * @value 6460800 RTPS Client (460800 baud)
- * @value 1921600 ESP8266 (921600 baud, 8N1)
- *
- * @min 0
- * @max 6460800
- * @reboot_required true
- * @group System
- */
-PARAM_DEFINE_INT32(SYS_COMPANION, 0);
-
-/**
  * Parameter version
  *
- * This monotonically increasing number encodes the parameter compatibility set.
- * whenever it increases parameters might not be backwards compatible and
- * ground control stations should suggest a fresh configuration.
+ * This is used internally only: an airframe configuration might set an expected
+ * parameter version value via PARAM_DEFAULTS_VER. This is checked on bootup
+ * against SYS_PARAM_VER, and if they do not match, parameters from the airframe
+ * configuration are reloaded.
  *
  * @min 0
  * @group System
@@ -205,7 +179,7 @@ PARAM_DEFINE_INT32(SYS_CAL_BARO, 0);
  * Calibration will complete for each sensor when the temperature increase above the starting temeprature exceeds the value set by SYS_CAL_TDEL.
  * If the temperature rise is insufficient, the calibration will continue indefinitely and the board will need to be repowered to exit.
  *
- * @unit deg C
+ * @unit celcius
  * @min 10
  * @group System
  */
@@ -216,7 +190,7 @@ PARAM_DEFINE_INT32(SYS_CAL_TDEL, 24);
  *
  * Temperature calibration for each sensor will ignore data if the temperature is lower than the value set by SYS_CAL_TMIN.
  *
- * @unit deg C
+ * @unit celcius
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_CAL_TMIN, 5);
@@ -226,7 +200,7 @@ PARAM_DEFINE_INT32(SYS_CAL_TMIN, 5);
  *
  * Temperature calibration will not start if the temperature of any sensor is higher than the value set by SYS_CAL_TMAX.
  *
- * @unit deg C
+ * @unit celcius
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_CAL_TMAX, 10);
@@ -261,6 +235,19 @@ PARAM_DEFINE_INT32(SYS_HAS_MAG, 1);
 PARAM_DEFINE_INT32(SYS_HAS_BARO, 1);
 
 /**
+ * Enable factory calibration mode
+ *
+ * If enabled, future sensor calibrations will be stored to /fs/mtd_caldata.
+ *
+ * Note: this is only supported on boards with a separate calibration storage
+ * /fs/mtd_caldata.
+ *
+ * @boolean
+ * @group System
+ */
+PARAM_DEFINE_INT32(SYS_FAC_CAL_MODE, 0);
+
+/**
  * Bootloader update
  *
  * If enabled, update the bootloader on the next boot.
@@ -281,3 +268,16 @@ PARAM_DEFINE_INT32(SYS_HAS_BARO, 1);
  * @group System
  */
 PARAM_DEFINE_INT32(SYS_BL_UPDATE, 0);
+
+/**
+ * Enable failure injection
+ *
+ * If enabled allows MAVLink INJECT_FAILURE commands.
+ *
+ * WARNING: the failures can easily cause crashes and are to be used with caution!
+ *
+ * @boolean
+ *
+ * @group System
+ */
+PARAM_DEFINE_INT32(SYS_FAILURE_EN, 0);
