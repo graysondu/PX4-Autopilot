@@ -62,17 +62,20 @@ public:
 	void set_calibration_index(uint8_t calibration_index) { _calibration_index = calibration_index; }
 	void set_device_id(uint32_t device_id, bool external = false);
 	void set_external(bool external = true);
-	void set_offset(const matrix::Vector3f &offset) { _offset = offset; }
-	void set_scale(const matrix::Vector3f &scale) { _scale = scale; }
+	bool set_offset(const matrix::Vector3f &offset);
+	bool set_scale(const matrix::Vector3f &scale);
 	void set_rotation(Rotation rotation);
+	void set_temperature(float temperature) { _temperature = temperature; };
 
 	uint8_t calibration_count() const { return _calibration_count; }
 	uint32_t device_id() const { return _device_id; }
 	bool enabled() const { return (_priority > 0); }
 	bool external() const { return _external; }
+	const matrix::Vector3f &offset() const { return _offset; }
 	const int32_t &priority() const { return _priority; }
 	const matrix::Dcmf &rotation() const { return _rotation; }
 	const Rotation &rotation_enum() const { return _rotation_enum; }
+	const matrix::Vector3f &scale() const { return _scale; }
 
 	// apply offsets and scale
 	// rotate corrected measurements from sensor to body frame
@@ -89,6 +92,8 @@ public:
 	void SensorCorrectionsUpdate(bool force = false);
 
 private:
+	static constexpr float TEMPERATURE_INVALID = -1000.f;
+
 	uORB::Subscription _sensor_correction_sub{ORB_ID(sensor_correction)};
 
 	Rotation _rotation_enum{ROTATION_NONE};
@@ -97,6 +102,7 @@ private:
 	matrix::Vector3f _offset;
 	matrix::Vector3f _scale;
 	matrix::Vector3f _thermal_offset;
+	float _temperature{NAN};
 
 	int8_t _calibration_index{-1};
 	uint32_t _device_id{0};

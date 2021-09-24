@@ -1,15 +1,13 @@
 
 px4_add_board(
 	PLATFORM nuttx
-	VENDOR px4
-	MODEL fmu-v2
-	LABEL rover
 	TOOLCHAIN arm-none-eabi
 	ARCHITECTURE cortex-m4
+	CONSTRAINED_MEMORY
 	ROMFSROOT px4fmu_common
 	IO px4_io-v2_default
 	CONSTRAINED_FLASH
-
+	  NO_HELP
 	SERIAL_PORTS
 		GPS1:/dev/ttyS3
 		TEL1:/dev/ttyS1
@@ -33,6 +31,7 @@ px4_add_board(
 		optical_flow/px4flow
 		pwm_out
 		px4io
+		smart_battery/batmon
 		tone_alarm
 
 	MODULES
@@ -51,7 +50,7 @@ px4_add_board(
 		rc_update
 		sensors
 		temperature_compensation
-		vmount
+		#vmount
 
 	SYSTEMCMDS
 		bl_update
@@ -60,6 +59,7 @@ px4_add_board(
 		hardfault_log
 		i2cdetect
 		#led_control
+		mft
 		mixer
 		#motor_ramp
 		#motor_test
@@ -73,8 +73,8 @@ px4_add_board(
 		top
 		#topic_listener
 		tune_control
+		uorb
 		usb_connected
 		ver
 		work_queue
-
 	)

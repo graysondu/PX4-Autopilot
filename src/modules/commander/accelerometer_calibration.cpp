@@ -134,7 +134,7 @@
 #include <lib/sensor_calibration/Accelerometer.hpp>
 #include <lib/sensor_calibration/Utilities.hpp>
 #include <lib/mathlib/mathlib.h>
-#include <lib/ecl/geo/geo.h>
+#include <lib/geo/geo.h>
 #include <matrix/math.hpp>
 #include <lib/conversion/rotation.h>
 #include <lib/parameters/param.h>
@@ -153,17 +153,19 @@ static constexpr char sensor_name[] {"accel"};
 static constexpr unsigned MAX_ACCEL_SENS = 4;
 
 /// Data passed to calibration worker routine
-typedef struct  {
+struct accel_worker_data_s {
 	orb_advert_t	*mavlink_log_pub{nullptr};
 	unsigned	done_count{0};
 	float		accel_ref[MAX_ACCEL_SENS][detect_orientation_side_count][3] {};
-} accel_worker_data_t;
+	float		accel_temperature_ref[MAX_ACCEL_SENS] {NAN, NAN, NAN, NAN};
+};
 
 // Read specified number of accelerometer samples, calculate average and dispersion.
 static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS][detect_orientation_side_count][3],
-		unsigned orient, unsigned samples_num)
+		float (&accel_temperature_avg)[MAX_ACCEL_SENS],	unsigned orient, unsigned samples_num)
 {
 	Vector3f accel_sum[MAX_ACCEL_SENS] {};
+	float temperature_sum[MAX_ACCEL_SENS] {NAN, NAN, NAN, NAN};
 	unsigned counts[MAX_ACCEL_SENS] {};
 
 	unsigned errcount = 0;
@@ -213,7 +215,16 @@ static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS
 					}
 
 					accel_sum[accel_index] += Vector3f{arp.x, arp.y, arp.z} - offset;
+
 					counts[accel_index]++;
+
+					if (!PX4_ISFINITE(temperature_sum[accel_index])) {
+						// set first valid value
+						temperature_sum[accel_index] = (arp.temperature * counts[accel_index]);
+
+					} else {
+						temperature_sum[accel_index] += arp.temperature;
+					}
 				}
 			}
 
@@ -228,7 +239,7 @@ static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS
 	}
 
 	// rotate sensor measurements from sensor to body frame using board rotation matrix
-	const Dcmf board_rotation = calibration::GetBoardRotation();
+	const Dcmf board_rotation = calibration::GetBoardRotationMatrix();
 
 	for (unsigned s = 0; s < MAX_ACCEL_SENS; s++) {
 		accel_sum[s] = board_rotation * accel_sum[s];
@@ -237,6 +248,8 @@ static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS
 	for (unsigned s = 0; s < MAX_ACCEL_SENS; s++) {
 		const Vector3f avg{accel_sum[s] / counts[s]};
 		avg.copyTo(accel_avg[s][orient]);
+
+		accel_temperature_avg[s] = temperature_sum[s] /  counts[s];
 	}
 
 	return calibrate_return_ok;
@@ -245,12 +258,12 @@ static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS
 static calibrate_return accel_calibration_worker(detect_orientation_return orientation, void *data)
 {
 	static constexpr unsigned samples_num = 750;
-	accel_worker_data_t *worker_data = (accel_worker_data_t *)(data);
+	accel_worker_data_s *worker_data = (accel_worker_data_s *)(data);
 
 	calibration_log_info(worker_data->mavlink_log_pub, "[cal] Hold still, measuring %s side",
 			     detect_orientation_str(orientation));
 
-	read_accelerometer_avg(worker_data->accel_ref, orientation, samples_num);
+	read_accelerometer_avg(worker_data->accel_ref, worker_data->accel_temperature_ref, orientation, samples_num);
 
 	// check accel
 	for (unsigned accel_index = 0; accel_index < MAX_ACCEL_SENS; accel_index++) {
@@ -355,14 +368,14 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 	}
 
 	/* measure and calculate offsets & scales */
-	accel_worker_data_t worker_data{};
+	accel_worker_data_s worker_data{};
 	worker_data.mavlink_log_pub = mavlink_log_pub;
 	bool data_collected[detect_orientation_side_count] {};
 
 	if (calibrate_from_orientation(mavlink_log_pub, data_collected, accel_calibration_worker, &worker_data,
 				       false) == calibrate_return_ok) {
 
-		const Dcmf board_rotation = calibration::GetBoardRotation();
+		const Dcmf board_rotation = calibration::GetBoardRotationMatrix();
 		const Dcmf board_rotation_t = board_rotation.transpose();
 
 		bool param_save = false;
@@ -404,6 +417,8 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 				const Matrix3f accel_T_rotated{board_rotation_t *accel_T * board_rotation};
 				calibrations[i].set_scale(accel_T_rotated.diag());
 
+				calibrations[i].set_temperature(worker_data.accel_temperature_ref[i]);
+
 #if defined(DEBUD_BUILD)
 				PX4_INFO("accel %d: offset", i);
 				offset.print();
@@ -418,17 +433,17 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 				accel_T_rotated.print();
 #endif // DEBUD_BUILD
 				calibrations[i].PrintStatus();
-			}
 
-			// save all calibrations including empty slots
-			if (calibrations[i].ParametersSave()) {
-				param_save = true;
-				failed = false;
 
-			} else {
-				failed = true;
-				calibration_log_critical(mavlink_log_pub, "calibration save failed");
-				break;
+				if (calibrations[i].ParametersSave()) {
+					param_save = true;
+					failed = false;
+
+				} else {
+					failed = true;
+					calibration_log_critical(mavlink_log_pub, "calibration save failed");
+					break;
+				}
 			}
 		}
 
@@ -442,11 +457,13 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 
 		if (!failed) {
 			calibration_log_info(mavlink_log_pub, CAL_QGC_DONE_MSG, sensor_name);
+			px4_usleep(600000); // give this message enough time to propagate
 			return PX4_OK;
 		}
 	}
 
 	calibration_log_critical(mavlink_log_pub, CAL_QGC_FAILED_MSG, sensor_name);
+	px4_usleep(600000); // give this message enough time to propagate
 	return PX4_ERROR;
 }
 
@@ -476,6 +493,7 @@ int do_accel_calibration_quick(orb_advert_t *mavlink_log_pub)
 	for (unsigned accel_index = 0; accel_index < MAX_ACCEL_SENS; accel_index++) {
 		sensor_accel_s arp{};
 		Vector3f accel_sum{};
+		float temperature_sum{NAN};
 		unsigned count = 0;
 
 		while (accel_subs[accel_index].update(&arp)) {
@@ -511,11 +529,21 @@ int do_accel_calibration_quick(orb_advert_t *mavlink_log_pub)
 
 					if (diff.norm() < 1.f) {
 						accel_sum += Vector3f{arp.x, arp.y, arp.z} - offset;
+
 						count++;
+
+						if (!PX4_ISFINITE(temperature_sum)) {
+							// set first valid value
+							temperature_sum = (arp.temperature * count);
+
+						} else {
+							temperature_sum += arp.temperature;
+						}
 					}
 
 				} else {
 					accel_sum = accel;
+					temperature_sum = arp.temperature;
 					count = 1;
 				}
 			}
@@ -525,6 +553,7 @@ int do_accel_calibration_quick(orb_advert_t *mavlink_log_pub)
 
 			bool calibrated = false;
 			const Vector3f accel_avg = accel_sum / count;
+			const float temperature_avg = temperature_sum / count;
 
 			Vector3f offset{0.f, 0.f, 0.f};
 
@@ -570,6 +599,7 @@ int do_accel_calibration_quick(orb_advert_t *mavlink_log_pub)
 
 			} else {
 				calibration.set_offset(offset);
+				calibration.set_temperature(temperature_avg);
 
 				if (calibration.ParametersSave()) {
 					calibration.PrintStatus();

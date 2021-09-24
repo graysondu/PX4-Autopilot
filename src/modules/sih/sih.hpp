@@ -1,6 +1,6 @@
 /****************************************************************************
 *
-*   Copyright (c) 2019 PX4 Development Team. All rights reserved.
+*   Copyright (c) 2019-2020 PX4 Development Team. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -31,70 +31,83 @@
 *
 ****************************************************************************/
 
+/**
+ * @file sih.hpp
+ * Simulator in Hardware
+ *
+ * @author Romain Chiappinelli      <romain.chiap@gmail.com>
+ *
+ * Coriolis g Corporation - January 2019
+ */
+
+// The sensor signals reconstruction and noise levels are from [1]
+// [1] Bulka E, and Nahon M, "Autonomous fixed-wing aerobatics: from theory to flight."
+//     In 2018 IEEE International Conference on Robotics and Automation (ICRA), pp. 6573-6580. IEEE, 2018.
+// The aerodynamic model is from [2]
+// [2] Khan W, supervised by Nahon M, "Dynamics modeling of agile fixed-wing unmanned aerial vehicles."
+//     McGill University, PhD thesis, 2016.
+// The quaternion integration are from [3]
+// [3] Sveier A, Sjøberg AM, Egeland O. "Applied Runge–Kutta–Munthe-Kaas Integration for the Quaternion Kinematics."
+//     Journal of Guidance, Control, and Dynamics. 2019 Dec;42(12):2747-54.
+
 #pragma once
 
 #include <px4_platform_common/module.h>
 #include <px4_platform_common/module_params.h>
 #include <px4_platform_common/posix.h>
+#include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
 
 #include <matrix/matrix/math.hpp>   // matrix, vectors, dcm, quaterions
 #include <conversion/rotation.h>    // math::radians,
-#include <ecl/geo/geo.h>            // to get the physical constants
+#include <lib/geo/geo.h>        // to get the physical constants
 #include <drivers/drv_hrt.h>        // to get the real time
 #include <lib/drivers/accelerometer/PX4Accelerometer.hpp>
 #include <lib/drivers/barometer/PX4Barometer.hpp>
 #include <lib/drivers/gyroscope/PX4Gyroscope.hpp>
 #include <lib/drivers/magnetometer/PX4Magnetometer.hpp>
-#include <perf/perf_counter.h>
+#include <lib/perf/perf_counter.h>
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionInterval.hpp>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/sensor_gps.h>
 #include <uORB/topics/vehicle_angular_velocity.h>   // to publish groundtruth
 #include <uORB/topics/vehicle_attitude.h>           // to publish groundtruth
 #include <uORB/topics/vehicle_global_position.h>    // to publish groundtruth
+#include <uORB/topics/distance_sensor.h>
+#include <uORB/topics/airspeed.h>
 
-extern "C" __EXPORT int sih_main(int argc, char *argv[]);
+using namespace time_literals;
 
-class Sih : public ModuleBase<Sih>, public ModuleParams
+class Sih : public ModuleBase<Sih>, public ModuleParams, public px4::ScheduledWorkItem
 {
 public:
 	Sih();
-
-	virtual ~Sih() = default;
+	~Sih() override;
 
 	/** @see ModuleBase */
 	static int task_spawn(int argc, char *argv[]);
 
 	/** @see ModuleBase */
-	static Sih *instantiate(int argc, char *argv[]);
-
-	/** @see ModuleBase */
 	static int custom_command(int argc, char *argv[]);
+
+	/** @see ModuleBase::print_status() */
+	int print_status() override;
 
 	/** @see ModuleBase */
 	static int print_usage(const char *reason = nullptr);
-
-	/** @see ModuleBase::run() */
-	void run() override;
 
 	static float generate_wgn();    // generate white Gaussian noise sample
 
 	// generate white Gaussian noise sample as a 3D vector with specified std
 	static matrix::Vector3f noiseGauss3f(float stdx, float stdy, float stdz);
 
-	// timer called periodically to post the semaphore
-	static void timer_callback(void *sem);
+	bool init();
 
 private:
+	void Run() override;
 
-	/**
-	* Check for parameter changes and update them if needed.
-	* @param parameter_update_sub uorb subscription to parameter_update
-	* @param force for a parameter update
-	*/
-	void parameters_update_poll();
 	void parameters_updated();
 
 	// simulated sensor instances
@@ -106,6 +119,10 @@ private:
 	// to publish the gps position
 	sensor_gps_s			_sensor_gps{};
 	uORB::Publication<sensor_gps_s>	_sensor_gps_pub{ORB_ID(sensor_gps)};
+
+	// to publish the distance sensor
+	distance_sensor_s                    _distance_snsr{};
+	uORB::Publication<distance_sensor_s> _distance_snsr_pub{ORB_ID(distance_sensor)};
 
 	// angular velocity groundtruth
 	vehicle_angular_velocity_s			_vehicle_angular_velocity_gt{};
@@ -119,7 +136,10 @@ private:
 	vehicle_global_position_s			_gpos_gt{};
 	uORB::Publication<vehicle_global_position_s>	_gpos_gt_pub{ORB_ID(vehicle_global_position_groundtruth)};
 
-	uORB::Subscription _parameter_update_sub{ORB_ID(parameter_update)};
+	// airspeed
+	uORB::Publication<airspeed_s>				_airspeed_pub{ORB_ID(airspeed)};
+
+	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _actuator_out_sub{ORB_ID(actuator_outputs)};
 
 	// hard constants
@@ -127,30 +147,38 @@ private:
 	static constexpr float T1_C = 15.0f;                        // ground temperature in celcius
 	static constexpr float T1_K = T1_C - CONSTANTS_ABSOLUTE_NULL_CELSIUS;   // ground temperature in Kelvin
 	static constexpr float TEMP_GRADIENT  = -6.5f / 1000.0f;    // temperature gradient in degrees per metre
-	static constexpr hrt_abstime LOOP_INTERVAL = 4000;      // 4ms => 250 Hz real-time
+	// Aerodynamic coefficients
+	static constexpr float RHO = 1.225f; 		// air density at sea level [kg/m^3]
+	static constexpr float SPAN = 0.86f; 	// wing span [m]
+	static constexpr float MAC = 0.21f; 	// wing mean aerodynamic chord [m]
+	static constexpr float RP = 0.1f; 	// radius of the propeller [m]
+	static constexpr float FLAP_MAX = M_PI_F / 12.0f; // 15 deg, maximum control surface deflection
 
 	void init_variables();
-	void init_sensors();
+	void gps_fix();
+	void gps_no_fix();
 	void read_motors();
 	void generate_force_and_torques();
 	void equations_of_motion();
 	void reconstruct_sensors_signals();
-	void send_IMU();
 	void send_gps();
+	void send_airspeed();
+	void send_dist_snsr();
 	void publish_sih();
-	void inner_loop();
+	void generate_aerodynamics();
 
-	perf_counter_t  _loop_perf;
-	perf_counter_t  _sampling_perf;
+	perf_counter_t  _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
+	perf_counter_t  _loop_interval_perf{perf_alloc(PC_INTERVAL, MODULE_NAME": cycle interval")};
 
-	px4_sem_t       _data_semaphore;
-
-	hrt_call    _timer_call;
-	hrt_abstime _last_run;
-	hrt_abstime _gps_time;
-	hrt_abstime _serial_time;
-	hrt_abstime _now;
-	float       _dt;            // sampling time [s]
+	hrt_abstime _last_run{0};
+	hrt_abstime _baro_time{0};
+	hrt_abstime _gps_time{0};
+	hrt_abstime _airspeed_time{0};
+	hrt_abstime _mag_time{0};
+	hrt_abstime _gt_time{0};
+	hrt_abstime _dist_snsr_time{0};
+	hrt_abstime _now{0};
+	float       _dt{0};         // sampling time [s]
 	bool        _grounded{true};// whether the vehicle is on the ground
 
 	matrix::Vector3f    _T_B;           // thrust force in body frame [N]
@@ -165,10 +193,21 @@ private:
 	matrix::Quatf       _q;             // quaternion attitude
 	matrix::Dcmf        _C_IB;          // body to inertial transformation
 	matrix::Vector3f    _w_B;           // body rates in body frame [rad/s]
-	matrix::Quatf       _q_dot;         // quaternion differential
+	matrix::Quatf       _dq;            // quaternion differential
 	matrix::Vector3f    _w_B_dot;       // body rates differential
-	float       _u[NB_MOTORS];  // thruster signals
+	float       _u[NB_MOTORS];          // thruster signals
 
+	enum class VehicleType {MC, FW};
+	VehicleType _vehicle = VehicleType::MC;
+
+	// aerodynamic segments for the fixedwing
+	AeroSeg _wing_l = AeroSeg(SPAN / 2.0f, MAC, -4.0f, matrix::Vector3f(0.0f, -SPAN / 4.0f, 0.0f), 3.0f,
+				  SPAN / MAC, MAC / 3.0f);
+	AeroSeg _wing_r = AeroSeg(SPAN / 2.0f, MAC, -4.0f, matrix::Vector3f(0.0f, SPAN / 4.0f, 0.0f), -3.0f,
+				  SPAN / MAC, MAC / 3.0f);
+	AeroSeg _tailplane = AeroSeg(0.3f, 0.1f, 0.0f, matrix::Vector3f(-0.4f, 0.0f, 0.0f), 0.0f, -1.0f, 0.05f, RP);
+	AeroSeg _fin = AeroSeg(0.25, 0.18, 0.0f, matrix::Vector3f(-0.45f, 0.0f, -0.1f), -90.0f, -1.0f, 0.12f, RP);
+	AeroSeg _fuselage = AeroSeg(0.2, 0.8, 0.0f, matrix::Vector3f(0.0f, 0.0f, 0.0f), -90.0f);
 
 	// sensors reconstruction
 	matrix::Vector3f    _acc;
@@ -182,15 +221,21 @@ private:
 	float       _baro_temp_c;   // reconstructed (simulated) barometer temperature in celcius
 
 	// parameters
-	float _MASS, _T_MAX, _Q_MAX, _L_ROLL, _L_PITCH, _KDV, _KDW, _H0;
+	float _MASS, _T_MAX, _Q_MAX, _L_ROLL, _L_PITCH, _KDV, _KDW, _H0, _T_TAU;
 	double _LAT0, _LON0, _COS_LAT0;
 	matrix::Vector3f _W_I;  // weight of the vehicle in inertial frame [N]
 	matrix::Matrix3f _I;    // vehicle inertia matrix
 	matrix::Matrix3f _Im1;  // inverse of the intertia matrix
 	matrix::Vector3f _mu_I; // NED magnetic field in inertial frame [G]
 
+	int _gps_used;
+	float _baro_offset_m, _mag_offset_x, _mag_offset_y, _mag_offset_z;
+	float _distance_snsr_min, _distance_snsr_max, _distance_snsr_override;
+
 	// parameters defined in sih_params.c
 	DEFINE_PARAMETERS(
+		(ParamInt<px4::params::IMU_GYRO_RATEMAX>) _imu_gyro_ratemax,
+
 		(ParamFloat<px4::params::SIH_MASS>) _sih_mass,
 		(ParamFloat<px4::params::SIH_IXX>) _sih_ixx,
 		(ParamFloat<px4::params::SIH_IYY>) _sih_iyy,
@@ -209,6 +254,16 @@ private:
 		(ParamFloat<px4::params::SIH_LOC_H0>) _sih_h0,
 		(ParamFloat<px4::params::SIH_LOC_MU_X>) _sih_mu_x,
 		(ParamFloat<px4::params::SIH_LOC_MU_Y>) _sih_mu_y,
-		(ParamFloat<px4::params::SIH_LOC_MU_Z>) _sih_mu_z
+		(ParamFloat<px4::params::SIH_LOC_MU_Z>) _sih_mu_z,
+		(ParamInt<px4::params::SIH_GPS_USED>) _sih_gps_used,
+		(ParamFloat<px4::params::SIH_BARO_OFFSET>) _sih_baro_offset,
+		(ParamFloat<px4::params::SIH_MAG_OFFSET_X>) _sih_mag_offset_x,
+		(ParamFloat<px4::params::SIH_MAG_OFFSET_Y>) _sih_mag_offset_y,
+		(ParamFloat<px4::params::SIH_MAG_OFFSET_Z>) _sih_mag_offset_z,
+		(ParamFloat<px4::params::SIH_DISTSNSR_MIN>) _sih_distance_snsr_min,
+		(ParamFloat<px4::params::SIH_DISTSNSR_MAX>) _sih_distance_snsr_max,
+		(ParamFloat<px4::params::SIH_DISTSNSR_OVR>) _sih_distance_snsr_override,
+		(ParamFloat<px4::params::SIH_T_TAU>) _sih_thrust_tau,
+		(ParamInt<px4::params::SIH_VEHICLE_TYPE>) _sih_vtype
 	)
 };

@@ -127,7 +127,9 @@ Replay::setupReplayFile(const char *file_name)
 void
 Replay::setUserParams(const char *filename)
 {
-	string line, param_name, value_string;
+	string line;
+	string pname;
+	string value_string;
 	ifstream myfile(filename);
 
 	if (!myfile.is_open()) {
@@ -144,23 +146,37 @@ Replay::setUserParams(const char *filename)
 		}
 
 		istringstream mystrstream(line);
-		mystrstream >> param_name;
+		mystrstream >> pname;
 		mystrstream >> value_string;
 
 		double param_value_double = stod(value_string);
 
-		param_t handle = param_find(param_name.c_str());
+		param_t handle = param_find(pname.c_str());
 		param_type_t param_format = param_type(handle);
-		_overridden_params.insert(param_name);
+		_overridden_params.insert(pname);
 
 		if (param_format == PARAM_TYPE_INT32) {
-			int32_t value = 0;
-			value = (int32_t)param_value_double;
+			int32_t orig_value = 0;
+			param_get(handle, &orig_value);
+
+			int32_t value = (int32_t)param_value_double;
+
+			if (orig_value != value) {
+				PX4_WARN("setting %s (INT32) %d -> %d", param_name(handle), orig_value, value);
+			}
+
 			param_set(handle, (const void *)&value);
 
 		} else if (param_format == PARAM_TYPE_FLOAT) {
-			float value = 0;
-			value = (float)param_value_double;
+			float orig_value = 0;
+			param_get(handle, &orig_value);
+
+			float value = (float)param_value_double;
+
+			if (fabsf(orig_value - value) > FLT_EPSILON) {
+				PX4_WARN("setting %s (FLOAT) %.3f -> %.3f", param_name(handle), (double)orig_value, (double)value);
+			}
+
 			param_set(handle, (const void *)&value);
 		}
 	}
@@ -355,7 +371,9 @@ Replay::readAndAddSubscription(std::ifstream &file, uint16_t msg_size)
 	// FIXME: this should check recursively, all used nested types
 	string file_format = _file_formats[topic_name];
 
-	if (file_format != orb_meta->o_fields) {
+	std::string orb_fields(orb_meta->o_fields);
+
+	if (file_format != orb_fields) {
 		// check if we have a compatibility conversion available
 		if (topic_name == "sensor_combined") {
 			if (string(orb_meta->o_fields) == "uint64_t timestamp;float[3] gyro_rad;uint32_t gyro_integral_dt;"
@@ -383,9 +401,43 @@ Replay::readAndAddSubscription(std::ifstream &file, uint16_t msg_size)
 		}
 
 		if (!compat) {
-			PX4_WARN("Formats for %s don't match. Will ignore it.", topic_name.c_str());
-			PX4_WARN(" Internal format: %s", orb_meta->o_fields);
+			PX4_ERR("Formats for %s don't match. Will ignore it.", topic_name.c_str());
+			PX4_WARN(" Internal format:");
+			size_t start = 0;
+
+			for (size_t i = 0; i < orb_fields.length(); ++i) {
+				if (orb_fields[i] == ';') {
+					std::string field(orb_fields.substr(start, i - start));
+
+					if (file_format.find(field) != std::string::npos) {
+						PX4_WARN(" - %s", field.c_str());
+
+					} else {
+						PX4_ERR(" - %s", field.c_str());
+					}
+
+					start = i + 1;
+				}
+			}
+
 			PX4_WARN(" File format    : %s", file_format.c_str());
+			start = 0;
+
+			for (size_t i = 0; i < file_format.length(); ++i) {
+				if (file_format[i] == ';') {
+					std::string field(file_format.substr(start, i - start));
+
+					if (orb_fields.find(field) != std::string::npos) {
+						PX4_WARN(" - %s", field.c_str());
+
+					} else {
+						PX4_ERR(" - %s", field.c_str());
+					}
+
+					start = i + 1;
+				}
+			}
+
 			return true; // not a fatal error
 		}
 	}
@@ -400,11 +452,13 @@ Replay::readAndAddSubscription(std::ifstream &file, uint16_t msg_size)
 	bool timestamp_found = findFieldOffset(orb_meta->o_fields, "timestamp", subscription->timestamp_offset, field_size);
 
 	if (!timestamp_found) {
+		delete subscription;
 		return true;
 	}
 
 	if (field_size != 8) {
 		PX4_ERR("Unsupported timestamp with size %i, ignoring the topic %s", field_size, orb_meta->o_name);
+		delete subscription;
 		return true;
 	}
 
@@ -413,6 +467,7 @@ Replay::readAndAddSubscription(std::ifstream &file, uint16_t msg_size)
 	subscription->next_read_pos = this_message_pos; //this will be skipped
 
 	if (!nextDataMessage(file, *subscription, msg_id)) {
+		delete subscription;
 		return false;
 	}
 
@@ -420,6 +475,7 @@ Replay::readAndAddSubscription(std::ifstream &file, uint16_t msg_size)
 
 	if (!subscription->orb_meta) {
 		//no message found. This is not a fatal error
+		delete subscription;
 		return true;
 	}
 
@@ -549,7 +605,7 @@ Replay::readDropout(std::ifstream &file, uint16_t msg_size)
 	uint16_t duration;
 	file.read((char *)&duration, sizeof(duration));
 
-	PX4_INFO("Dropout in replayed log, %i ms", (int)duration);
+	PX4_ERR("Dropout in replayed log, %i ms", (int)duration);
 	return file.good();
 }
 

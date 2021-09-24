@@ -1,16 +1,15 @@
 
 px4_add_board(
 	PLATFORM nuttx
-	VENDOR px4
-	MODEL fmu-v2
-	LABEL test
 	TOOLCHAIN arm-none-eabi
 	ARCHITECTURE cortex-m4
+	CONSTRAINED_MEMORY
 	ROMFSROOT px4fmu_test
 	IO px4_io-v2_default
 	TESTING
 	#UAVCAN_INTERFACES 2
 	CONSTRAINED_FLASH
+	  NO_HELP
 	SERIAL_PORTS
 		GPS1:/dev/ttyS3
 		TEL1:/dev/ttyS1
@@ -24,30 +23,27 @@ px4_add_board(
 		#camera_capture
 		#camera_trigger
 		#differential_pressure # all available differential pressure drivers
-		differential_pressure/ms4525
+		#differential_pressure/ms4525
 		#distance_sensor # all available distance sensor drivers
-		distance_sensor/ll40ls
-		distance_sensor/sf0x
+		#distance_sensor/ll40ls
+		#distance_sensor/lightware_laser_serial
 		#dshot
 		gps
 		#heater
 		#imu # all available imu drivers
-		#imu/adis16448
+		#imu/analog_devices/adis16448
 		#imu/adis16477
 		#imu/adis16497
 		imu/l3gd20
 		imu/lsm303d
 		imu/invensense/mpu6000
 		#imu/invensense/mpu9250
-		#iridiumsbd
 		#irlock
-		#lights/blinkm
 		lights/rgbled
 		#magnetometer # all available magnetometer drivers
 		magnetometer/hmc5883
-		#mkblctrl
 		#optical_flow # all available optical flow drivers
-		optical_flow/px4flow
+		#optical_flow/px4flow
 		#osd
 		#pca9685
 		#protocol_splitter
@@ -56,7 +52,6 @@ px4_add_board(
 		pwm_out
 		px4io
 		#roboclaw
-		#tap_esc
 		#telemetry # all available telemetry drivers
 		#test_ppm
 		tone_alarm
@@ -70,6 +65,7 @@ px4_add_board(
 		dataman
 		#ekf2
 		#events
+		flight_mode_manager
 		#fw_att_control
 		#fw_pos_control_l1
 		land_detector
@@ -79,7 +75,7 @@ px4_add_board(
 		logger
 		mavlink
 		mc_att_control
-		mc_hover_thrust_estimator
+		#mc_hover_thrust_estimator
 		mc_pos_control
 		mc_rate_control
 		navigator
@@ -98,6 +94,8 @@ px4_add_board(
 		hardfault_log
 		#i2cdetect
 		#led_control
+		mft
+		microbench
 		mixer
 		#motor_ramp
 		#motor_test
@@ -114,10 +112,12 @@ px4_add_board(
 		top
 		#topic_listener
 		tune_control
+		#uorb
 		#usb_connected
 		ver
 		#work_queue
 	EXAMPLES
+		#fake_gps
 		#fixedwing_control # Tutorial code from https://px4.io/dev/example_fixedwing_control
 		#hello
 		#hwtest # Hardware test

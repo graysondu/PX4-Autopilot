@@ -1,15 +1,14 @@
 
 px4_add_board(
 	PLATFORM nuttx
-	VENDOR px4
-	MODEL fmu-v2
-	LABEL multicopter
 	TOOLCHAIN arm-none-eabi
 	ARCHITECTURE cortex-m4
+	CONSTRAINED_MEMORY
 	ROMFSROOT px4fmu_common
 	IO px4_io-v2_default
 	#UAVCAN_INTERFACES 2
 	CONSTRAINED_FLASH
+	  NO_HELP
 	SERIAL_PORTS
 		GPS1:/dev/ttyS3
 		TEL1:/dev/ttyS1
@@ -25,9 +24,9 @@ px4_add_board(
 		gps
 		imu/l3gd20
 		imu/lsm303d
-		imu/mpu6000
+		imu/invensense/mpu6000
 		#imu/invensense/mpu9250
-		irlock
+		#irlock
 		lights/rgbled
 		magnetometer/hmc5883
 		#optical_flow/px4flow
@@ -37,10 +36,13 @@ px4_add_board(
 	MODULES
 		#attitude_estimator_q
 		battery_status
-		camera_feedback
+		#camera_feedback
 		commander
 		dataman
 		ekf2
+		flight_mode_manager
+		#gyro_calibration
+		#gyro_fft
 		#events
 		land_detector
 		landing_target_estimator
@@ -57,7 +59,7 @@ px4_add_board(
 		sensors
 		#sih
 		#temperature_compensation
-		vmount
+		#vmount
 	SYSTEMCMDS
 		#bl_update
 		#dumpfile
@@ -65,19 +67,21 @@ px4_add_board(
 		hardfault_log
 		#i2cdetect
 		#led_control
+		mft
 		mixer
 		#motor_ramp
 		#motor_test
 		mtd
 		#nshterm
 		param
-		perf
+		#perf
 		pwm
 		reboot
 		#sd_bench
 		top
 		#topic_listener
 		tune_control
+		#uorb
 		#usb_connected
 		ver
 		#work_queue

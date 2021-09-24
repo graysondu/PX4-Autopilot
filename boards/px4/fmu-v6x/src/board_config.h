@@ -135,7 +135,7 @@
  */
 #define PX4_I2C_OBDEV_SE050         0x48
 
-#define GPIO_I2C4_DRDY1_BMP388      /* PG5  */  (GPIO_INPUT|GPIO_FLOAT|GPIO_EXTI|GPIO_PORTG|GPIO_PIN5)
+#define GPIO_I2C2_DRDY1_BMP388      /* PG5  */  (GPIO_INPUT|GPIO_FLOAT|GPIO_EXTI|GPIO_PORTG|GPIO_PIN5)
 
 /*
  * ADC channels
@@ -227,6 +227,7 @@
  * PWM in future
  */
 #define GPIO_HEATER_OUTPUT   /* PB10  T2CH3 */ (GPIO_OUTPUT|GPIO_PUSHPULL|GPIO_SPEED_2MHz|GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN10)
+#define HEATER_OUTPUT_EN(on_true)	       px4_arch_gpiowrite(GPIO_HEATER_OUTPUT, (on_true))
 
 /* PWM Capture
  *
@@ -256,7 +257,6 @@
 /* PWM
  */
 #define DIRECT_PWM_OUTPUT_CHANNELS   8
-#define DIRECT_INPUT_TIMER_CHANNELS  8
 
 #define BOARD_DSHOT_MOTOR_ASSIGNMENT {3, 2, 1, 0, 4, 5, 6, 7};
 
@@ -426,7 +426,6 @@
 #define BOARD_ADC_PERIPH_5V_OC  (!px4_arch_gpioread(GPIO_VDD_5V_PERIPH_nOC))
 #define BOARD_ADC_HIPOWER_5V_OC (!px4_arch_gpioread(GPIO_VDD_5V_HIPOWER_nOC))
 
-#define BOARD_HAS_PWM  DIRECT_PWM_OUTPUT_CHANNELS
 
 /* This board provides a DMA pool and APIs */
 #define BOARD_DMA_ALLOC_POOL_SIZE 5120
@@ -478,6 +477,9 @@
 	}
 
 #define BOARD_ENABLE_CONSOLE_BUFFER
+
+#define PX4_I2C_BUS_MTD      4,5
+
 
 #define BOARD_NUM_IO_TIMERS 5
 

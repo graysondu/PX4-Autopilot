@@ -111,15 +111,6 @@ static inline hrt_abstime hrt_elapsed_time(const hrt_abstime *then)
 }
 
 /**
- * Compute the delta between a timestamp taken in the past
- * and now.
- *
- * This function is safe to use even if the timestamp is updated
- * by an interrupt during execution.
- */
-__EXPORT extern hrt_abstime hrt_elapsed_time_atomic(const volatile hrt_abstime *then);
-
-/**
  * Store the absolute time in an interrupt-safe fashion.
  *
  * This function ensures that the timestamp cannot be seen half-written by an interrupt handler.
@@ -225,14 +216,14 @@ constexpr hrt_abstime operator "" _s(unsigned long long seconds)
 	return hrt_abstime(seconds * 1000000ULL);
 }
 
-constexpr hrt_abstime operator "" _ms(unsigned long long seconds)
+constexpr hrt_abstime operator "" _ms(unsigned long long milliseconds)
 {
-	return hrt_abstime(seconds * 1000ULL);
+	return hrt_abstime(milliseconds * 1000ULL);
 }
 
-constexpr hrt_abstime operator "" _us(unsigned long long seconds)
+constexpr hrt_abstime operator "" _us(unsigned long long microseconds)
 {
-	return hrt_abstime(seconds);
+	return hrt_abstime(microseconds);
 }
 
 } /* namespace time_literals */

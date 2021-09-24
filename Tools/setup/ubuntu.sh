@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
 
+set -e
+
 ## Bash script to setup PX4 development environment on Ubuntu LTS (20.04, 18.04, 16.04).
 ## Can also be used in docker.
 ##
@@ -13,6 +15,7 @@
 
 INSTALL_NUTTX="true"
 INSTALL_SIM="true"
+INSTALL_ARCH=`uname -m`
 
 # Parse arguments
 for arg in "$@"
@@ -114,18 +117,32 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 	echo "Installing NuttX dependencies"
 
 	sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends install \
-		autoconf \
 		automake \
+		binutils-dev \
 		bison \
-		bzip2 \
-		file \
+		build-essential \
 		flex \
+		g++-multilib \
+		gcc-multilib \
 		gdb-multiarch \
+		genromfs \
+		gettext \
 		gperf \
-		libncurses-dev \
+		kconfig-frontends \
+		libelf-dev \
+		libexpat-dev \
+		libgmp-dev \
+		libisl-dev \
+		libmpc-dev \
+		libmpfr-dev \
+		libncurses5-dev \
+		libncursesw5-dev \
 		libtool \
 		pkg-config \
 		screen \
+		texinfo \
+		u-boot-tools \
+		util-linux \
 		vim-common \
 		;
 
@@ -149,7 +166,7 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 
 	else
 		echo "Installing arm-none-eabi-gcc-${NUTTX_GCC_VERSION}";
-		wget -O /tmp/gcc-arm-none-eabi-${NUTTX_GCC_VERSION}-linux.tar.bz2 https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-rm/${NUTTX_GCC_VERSION_SHORT}/gcc-arm-none-eabi-${NUTTX_GCC_VERSION}-x86_64-linux.tar.bz2 && \
+		wget -O /tmp/gcc-arm-none-eabi-${NUTTX_GCC_VERSION}-linux.tar.bz2 https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-rm/${NUTTX_GCC_VERSION_SHORT}/gcc-arm-none-eabi-${NUTTX_GCC_VERSION}-${INSTALL_ARCH}-linux.tar.bz2 && \
 			sudo tar -jxf /tmp/gcc-arm-none-eabi-${NUTTX_GCC_VERSION}-linux.tar.bz2 -C /opt/;
 
 		# add arm-none-eabi-gcc to user's PATH
@@ -178,7 +195,7 @@ if [[ $INSTALL_SIM == "true" ]]; then
 		java_version=11
 		gazebo_version=9
 	elif [[ "${UBUNTU_RELEASE}" == "20.04" ]]; then
-		java_version=14
+		java_version=13
 		gazebo_version=11
 	else
 		java_version=14
@@ -198,6 +215,8 @@ if [[ $INSTALL_SIM == "true" ]]; then
 	# Gazebo
 	sudo sh -c 'echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable `lsb_release -cs` main" > /etc/apt/sources.list.d/gazebo-stable.list'
 	wget http://packages.osrfoundation.org/gazebo.key -O - | sudo apt-key add -
+	# Update list, since new gazebo-stable.list has been added
+	sudo apt-get update -y --quiet
 	sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends install \
 		dmidecode \
 		gazebo$gazebo_version \

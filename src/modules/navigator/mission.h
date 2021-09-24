@@ -57,6 +57,7 @@
 #include <uORB/topics/home_position.h>
 #include <uORB/topics/mission.h>
 #include <uORB/topics/mission_result.h>
+#include <uORB/topics/navigator_mission_item.h>
 #include <uORB/topics/position_setpoint_triplet.h>
 #include <uORB/topics/vehicle_global_position.h>
 #include <uORB/topics/vehicle_status.h>
@@ -86,6 +87,10 @@ public:
 	bool get_mission_finished() const { return _mission_type == MISSION_TYPE_NONE; }
 	bool get_mission_changed() const { return _mission_changed ; }
 	bool get_mission_waypoints_changed() const { return _mission_waypoints_changed ; }
+	double get_landing_start_lat() { return _landing_start_lat; }
+	double get_landing_start_lon() { return _landing_start_lon; }
+	float get_landing_start_alt() { return _landing_start_alt; }
+
 	double get_landing_lat() { return _landing_lat; }
 	double get_landing_lon() { return _landing_lon; }
 	float get_landing_alt() { return _landing_alt; }
@@ -230,11 +235,15 @@ private:
 
 	bool position_setpoint_equal(const position_setpoint_s *p1, const position_setpoint_s *p2) const;
 
+	void publish_navigator_mission_item();
+
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::MIS_DIST_1WP>) _param_mis_dist_1wp,
 		(ParamFloat<px4::params::MIS_DIST_WPS>) _param_mis_dist_wps,
 		(ParamInt<px4::params::MIS_MNT_YAW_CTL>) _param_mis_mnt_yaw_ctl
 	)
+
+	uORB::Publication<navigator_mission_item_s> _navigator_mission_item_pub{ORB_ID::navigator_mission_item};
 
 	uORB::Subscription	_mission_sub{ORB_ID(mission)};		/**< mission subscription */
 	mission_s		_mission {};
@@ -244,11 +253,17 @@ private:
 	// track location of planned mission landing
 	bool	_land_start_available{false};
 	uint16_t _land_start_index{UINT16_MAX};		/**< index of DO_LAND_START, INVALID_DO_LAND_START if no planned landing */
+	double _landing_start_lat{0.0};
+	double _landing_start_lon{0.0};
+	float _landing_start_alt{0.0f};
+
 	double _landing_lat{0.0};
 	double _landing_lon{0.0};
 	float _landing_alt{0.0f};
 
 	bool _need_takeoff{true};					/**< if true, then takeoff must be performed before going to the first waypoint (if needed) */
+
+	hrt_abstime _time_mission_deactivated{0};
 
 	enum {
 		MISSION_TYPE_NONE,
@@ -266,7 +281,6 @@ private:
 		WORK_ITEM_TYPE_TAKEOFF,		/**< takeoff before moving to waypoint */
 		WORK_ITEM_TYPE_MOVE_TO_LAND,	/**< move to land waypoint before descent */
 		WORK_ITEM_TYPE_ALIGN,		/**< align for next waypoint */
-		WORK_ITEM_TYPE_CMD_BEFORE_MOVE,
 		WORK_ITEM_TYPE_TRANSITON_AFTER_TAKEOFF,
 		WORK_ITEM_TYPE_MOVE_TO_LAND_AFTER_TRANSITION,
 		WORK_ITEM_TYPE_PRECISION_LAND

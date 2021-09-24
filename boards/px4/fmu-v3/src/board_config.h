@@ -131,7 +131,6 @@
 /* PWM
  */
 #define DIRECT_PWM_OUTPUT_CHANNELS	6
-#define DIRECT_INPUT_TIMER_CHANNELS  6
 
 /* USB OTG FS
  *
@@ -159,7 +158,6 @@
 #define BOARD_ADC_PERIPH_5V_OC  (!px4_arch_gpioread(GPIO_VDD_5V_PERIPH_OC))
 #define BOARD_ADC_HIPOWER_5V_OC (!px4_arch_gpioread(GPIO_VDD_5V_HIPOWER_OC))
 
-#define BOARD_HAS_PWM	DIRECT_PWM_OUTPUT_CHANNELS
 
 /* This board provides a DMA pool and APIs */
 #define BOARD_DMA_ALLOC_POOL_SIZE 5120
@@ -167,6 +165,12 @@
 #define BOARD_HAS_ON_RESET 1
 
 #define BOARD_DSHOT_MOTOR_ASSIGNMENT {3, 2, 1, 0, 4, 5};
+
+/* Internal IMU Heater
+ *
+ * Connected to the IO MCU; tell compiler to enable support
+ */
+#define PX4IO_HEATER_ENABLED
 
 __BEGIN_DECLS
 

@@ -41,12 +41,11 @@
 #include <lib/systemlib/mavlink_log.h>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/sensor_accel.h>
-#include <uORB/topics/subsystem_info.h>
 
 using namespace time_literals;
 
 bool PreFlightCheck::accelerometerCheck(orb_advert_t *mavlink_log_pub, vehicle_status_s &status, const uint8_t instance,
-					const bool optional, const bool dynamic, int32_t &device_id, const bool report_fail)
+					const bool optional, int32_t &device_id, const bool report_fail)
 {
 	const bool exists = (orb_exists(ORB_ID(sensor_accel), instance) == PX4_OK);
 	bool calibration_valid = false;
@@ -60,40 +59,42 @@ bool PreFlightCheck::accelerometerCheck(orb_advert_t *mavlink_log_pub, vehicle_s
 
 		if (!valid) {
 			if (report_fail) {
-				mavlink_log_critical(mavlink_log_pub, "Preflight Fail: no valid data from Accel #%u", instance);
+				mavlink_log_critical(mavlink_log_pub, "Preflight Fail: no valid data from Accel %u", instance);
 			}
 		}
 
 		device_id = accel.get().device_id;
 
-		calibration_valid = (calibration::FindCalibrationIndex("ACC", device_id) >= 0);
+		if (status.hil_state == vehicle_status_s::HIL_STATE_ON) {
+			calibration_valid = true;
+
+		} else {
+			calibration_valid = (calibration::FindCalibrationIndex("ACC", device_id) >= 0);
+		}
 
 		if (!calibration_valid) {
 			if (report_fail) {
-				mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel #%u uncalibrated", instance);
+				mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel %u uncalibrated", instance);
 			}
 
 		} else {
+			const float accel_magnitude = sqrtf(accel.get().x * accel.get().x
+							    + accel.get().y * accel.get().y
+							    + accel.get().z * accel.get().z);
 
-			if (dynamic) {
-				const float accel_magnitude = sqrtf(accel.get().x * accel.get().x
-								    + accel.get().y * accel.get().y
-								    + accel.get().z * accel.get().z);
-
-				if (accel_magnitude < 4.0f || accel_magnitude > 15.0f /* m/s^2 */) {
-					if (report_fail) {
-						mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel Range, hold still on arming");
-					}
-
-					/* this is frickin' fatal */
-					valid = false;
+			if (accel_magnitude < 4.0f || accel_magnitude > 15.0f /* m/s^2 */) {
+				if (report_fail) {
+					mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel Range, hold still on arming");
 				}
+
+				// this is fatal
+				valid = false;
 			}
 		}
 
 	} else {
 		if (!optional && report_fail) {
-			mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel Sensor #%u missing", instance);
+			mavlink_log_critical(mavlink_log_pub, "Preflight Fail: Accel Sensor %u missing", instance);
 		}
 	}
 

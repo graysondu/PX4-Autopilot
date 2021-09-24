@@ -201,6 +201,23 @@ serial_port_to_wq(const char *serial)
 	return wq_configurations::UART_UNKNOWN;
 }
 
+const wq_config_t &ins_instance_to_wq(uint8_t instance)
+{
+	switch (instance) {
+	case 0: return wq_configurations::INS0;
+
+	case 1: return wq_configurations::INS1;
+
+	case 2: return wq_configurations::INS2;
+
+	case 3: return wq_configurations::INS3;
+	}
+
+	PX4_WARN("no INS%d wq configuration, using INS0", instance);
+
+	return wq_configurations::INS0;
+}
+
 static void *
 WorkQueueRunner(void *context)
 {
@@ -249,7 +266,7 @@ WorkQueueManagerRun(int, char **)
 #if defined(__PX4_QURT)
 			const size_t stacksize = math::max(8 * 1024, PX4_STACK_ADJUSTED(wq->stacksize));
 #elif defined(__PX4_NUTTX)
-			const size_t stacksize = math::max((uint16_t)PTHREAD_STACK_MIN, wq->stacksize);
+			const size_t stacksize = math::max(PTHREAD_STACK_MIN, PX4_STACK_ADJUSTED(wq->stacksize));
 #elif defined(__PX4_POSIX)
 			// On posix system , the desired stacksize round to the nearest multiplier of the system pagesize
 			// It is a requirement of the  pthread_attr_setstacksize* function
@@ -315,7 +332,7 @@ WorkQueueManagerStart()
 		int task_id = px4_task_spawn_cmd("wq:manager",
 						 SCHED_DEFAULT,
 						 SCHED_PRIORITY_MAX,
-						 1280,
+						 PX4_STACK_ADJUSTED(1280),
 						 (px4_main_t)&WorkQueueManagerRun,
 						 nullptr);
 

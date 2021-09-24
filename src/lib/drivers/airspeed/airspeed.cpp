@@ -49,7 +49,6 @@
 
 #include <drivers/drv_airspeed.h>
 #include <drivers/drv_hrt.h>
-#include <drivers/device/ringbuffer.h>
 
 #include <uORB/uORB.h>
 #include <uORB/topics/differential_pressure.h>
@@ -105,11 +104,9 @@ Airspeed::probe()
 	   for detection. Once it is running the number of retries can
 	   be reduced
 	*/
-	_retries = 4;
+	_retries = 1;
 	int ret = measure();
 
-	// drop back to 2 retries once initialised
-	_retries = 2;
 	return ret;
 }
 

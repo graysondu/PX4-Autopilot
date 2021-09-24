@@ -33,6 +33,11 @@
 
 #pragma once
 
+#include <px4_platform_common/px4_config.h>
+#include <px4_platform_common/log.h>
+#include <lib/conversion/rotation.h>
+#include <lib/mathlib/mathlib.h>
+#include <lib/parameters/param.h>
 #include <matrix/math.hpp>
 
 namespace calibration
@@ -55,7 +60,8 @@ int8_t FindCalibrationIndex(const char *sensor_type, uint32_t device_id);
  * @param instance
  * @return int32_t The calibration value.
  */
-int32_t GetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance);
+int32_t GetCalibrationParamInt32(const char *sensor_type, const char *cal_type, uint8_t instance);
+float GetCalibrationParamFloat(const char *sensor_type, const char *cal_type, uint8_t instance);
 
 /**
  * @brief Set a single calibration paramter.
@@ -66,7 +72,22 @@ int32_t GetCalibrationParam(const char *sensor_type, const char *cal_type, uint8
  * @param value int32_t parameter value
  * @return true if the parameter name was valid and value saved successfully, false otherwise.
  */
-bool SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, int32_t value);
+template<typename T>
+bool SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, T value)
+{
+	char str[20] {};
+
+	// eg CAL_MAGn_ID/CAL_MAGn_ROT
+	sprintf(str, "CAL_%s%u_%s", sensor_type, instance, cal_type);
+
+	int ret = param_set_no_notification(param_find(str), &value);
+
+	if (ret != PX4_OK) {
+		PX4_ERR("failed to set %s", str);
+	}
+
+	return ret == PX4_OK;
+}
 
 /**
  * @brief Get the Calibration Params Vector 3f object
@@ -91,10 +112,24 @@ bool SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type,
 				  matrix::Vector3f values);
 
 /**
- * @brief Get the overall board rotation, including level adjustment.
+ * @brief Get the board sensor level adjustment (SENS_BOARD_X_OFF, SENS_BOARD_Y_OFF, SENS_BOARD_Z_OFF).
+ *
+ * @return matrix::Eulerf
+ */
+matrix::Eulerf GetSensorLevelAdjustment();
+
+/**
+ * @brief Get the board rotation.
+ *
+ * @return enum Rotation
+ */
+Rotation GetBoardRotation();
+
+/**
+ * @brief Get the board rotation Dcm.
  *
  * @return matrix::Dcmf
  */
-matrix::Dcmf GetBoardRotation();
+matrix::Dcmf GetBoardRotationMatrix();
 
 } // namespace calibration

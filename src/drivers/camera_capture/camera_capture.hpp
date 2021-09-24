@@ -38,7 +38,6 @@
 
 #pragma once
 
-#include <drivers/device/ringbuffer.h>
 #include <drivers/drv_hrt.h>
 #include <drivers/drv_input_capture.h>
 #include <drivers/drv_pwm_output.h>
@@ -54,9 +53,6 @@
 #include <uORB/topics/camera_trigger.h>
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_command_ack.h>
-
-#define PX4FMU_DEVICE_PATH	"/dev/px4fmu"
-
 
 class CameraCapture : public px4::ScheduledWorkItem
 {
@@ -101,7 +97,7 @@ public:
 private:
 
 	// Publishers
-	uORB::PublicationQueued<vehicle_command_ack_s>	_command_ack_pub{ORB_ID(vehicle_command_ack)};
+	uORB::Publication<vehicle_command_ack_s>	_command_ack_pub{ORB_ID(vehicle_command_ack)};
 	uORB::Publication<camera_trigger_s>		_trigger_pub{ORB_ID(camera_trigger)};
 
 	// Subscribers
@@ -114,8 +110,6 @@ private:
 		uint32_t edge_state;
 		uint32_t overflow;
 	} _trigger{};
-
-	ringbuffer::RingBuffer	*_trig_buffer{nullptr};
 
 	bool			_capture_enabled{false};
 	bool			_gpio_capture{false};
