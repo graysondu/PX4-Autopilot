@@ -72,7 +72,7 @@ void Ekf::fuseSideslip()
 		const float R_BETA = sq(_params.beta_noise); // observation noise variance
 
 		// determine if we need the sideslip fusion to correct states other than wind
-		bool update_wind_only = !_is_wind_dead_reckoning;
+		bool update_wind_only = !_control_status.flags.wind_dead_reckoning;
 
 		// Intermediate Values
 		const float HK0 = vn - vwn;
@@ -140,8 +140,7 @@ void Ekf::fuseSideslip()
 			const char *action_string = nullptr;
 
 			if (update_wind_only) {
-				resetWindStates();
-				resetWindCovariance();
+				resetWind();
 				action_string = "wind";
 
 			} else {

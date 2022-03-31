@@ -70,6 +70,13 @@ enum class link_loss_actions_t {
 	LOCKDOWN = 6,		// Lock actuators (set actuator outputs to disarmed values)
 };
 
+enum class quadchute_actions_t {
+	NO_ACTION = -1,
+	AUTO_RTL = 0,		// Return mode
+	AUTO_LAND = 1,		// Land mode
+	AUTO_LOITER = 2,	// Hold mode
+};
+
 enum class offboard_loss_actions_t {
 	DISABLED = -1,
 	AUTO_LAND = 0,		// Land mode
@@ -108,7 +115,8 @@ enum RCLossExceptionBits {
 };
 
 transition_result_t
-arming_state_transition(vehicle_status_s &status, const safety_s &safety, const arming_state_t new_arming_state,
+arming_state_transition(vehicle_status_s &status, const vehicle_control_mode_s &control_mode, const safety_s &safety,
+			const arming_state_t new_arming_state,
 			actuator_armed_s &armed, const bool fRunPreArmChecks, orb_advert_t *mavlink_log_pub,
 			vehicle_status_flags_s &status_flags, const PreFlightCheck::arm_requirements_t &arm_requirements,
 			const hrt_abstime &time_since_boot, arm_disarm_reason_t calling_reason);
@@ -121,6 +129,7 @@ bool set_nav_state(vehicle_status_s &status, actuator_armed_s &armed, commander_
 		   orb_advert_t *mavlink_log_pub, const link_loss_actions_t data_link_loss_act, const bool mission_finished,
 		   const bool stay_in_failsafe, const vehicle_status_flags_s &status_flags, bool landed,
 		   const link_loss_actions_t rc_loss_act, const offboard_loss_actions_t offb_loss_act,
+		   const quadchute_actions_t quadchute_act,
 		   const offboard_loss_rc_actions_t offb_loss_rc_act,
 		   const position_nav_loss_actions_t posctl_nav_loss_act,
 		   const float param_com_rcl_act_t, const int param_com_rcl_except);
@@ -141,8 +150,22 @@ typedef enum LOW_BAT_ACTION {
 	RETURN_OR_LAND = 3	// Return mode at critically low level, Land mode at current position if reaching dangerously low levels
 } low_battery_action_t;
 
-void battery_failsafe(orb_advert_t *mavlink_log_pub, const vehicle_status_s &status,
-		      const vehicle_status_flags_s &status_flags, commander_state_s &internal_state, const uint8_t battery_warning,
-		      const low_battery_action_t low_bat_action);
+void warn_user_about_battery(orb_advert_t *mavlink_log_pub, const uint8_t battery_warning,
+			     const uint8_t failsafe_action, const float param_com_bat_act_t,
+			     const char *failsafe_action_string, const events::px4::enums::navigation_mode_t failsafe_action_navigation_mode);
+uint8_t get_battery_failsafe_action(const commander_state_s &internal_state, const uint8_t battery_warning,
+				    const low_battery_action_t param_com_low_bat_act);
+
+// COM_IMB_PROP_ACT parameter values
+enum class imbalanced_propeller_action_t {
+	DISABLED = -1,
+	WARNING = 0,
+	RETURN = 1,
+	LAND = 2
+};
+
+void imbalanced_prop_failsafe(orb_advert_t *mavlink_log_pub, const vehicle_status_s &status,
+			      const vehicle_status_flags_s &status_flags, commander_state_s *internal_state,
+			      const imbalanced_propeller_action_t failsafe_action);
 
 #endif /* STATE_MACHINE_HELPER_H_ */

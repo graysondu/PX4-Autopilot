@@ -123,15 +123,15 @@ RCInput::task_spawn(int argc, char *argv[])
 	int myoptind = 1;
 	int ch;
 	const char *myoptarg = nullptr;
-	const char *device = nullptr;
+	const char *device_name = nullptr;
 #if defined(RC_SERIAL_PORT)
-	device = RC_SERIAL_PORT;
+	device_name = RC_SERIAL_PORT;
 #endif // RC_SERIAL_PORT
 
 	while ((ch = px4_getopt(argc, argv, "d:", &myoptind, &myoptarg)) != EOF) {
 		switch (ch) {
 		case 'd':
-			device = myoptarg;
+			device_name = myoptarg;
 			break;
 
 		case '?':
@@ -149,24 +149,31 @@ RCInput::task_spawn(int argc, char *argv[])
 		return -1;
 	}
 
-	if (device == nullptr) {
-		PX4_ERR("valid device required");
-		return PX4_ERROR;
+	if (device_name && (access(device_name, R_OK | W_OK) == 0)) {
+		RCInput *instance = new RCInput(device_name);
+
+		if (instance == nullptr) {
+			PX4_ERR("alloc failed");
+			return PX4_ERROR;
+		}
+
+		_object.store(instance);
+		_task_id = task_id_is_work_queue;
+
+		instance->ScheduleOnInterval(_current_update_interval);
+
+		return PX4_OK;
+
+	} else {
+		if (device_name) {
+			PX4_ERR("invalid device (-d) %s", device_name);
+
+		} else {
+			PX4_INFO("valid device required");
+		}
 	}
 
-	RCInput *instance = new RCInput(device);
-
-	if (instance == nullptr) {
-		PX4_ERR("alloc failed");
-		return PX4_ERROR;
-	}
-
-	_object.store(instance);
-	_task_id = task_id_is_work_queue;
-
-	instance->ScheduleOnInterval(_current_update_interval);
-
-	return PX4_OK;
+	return PX4_ERROR;
 }
 
 void
@@ -509,7 +516,7 @@ void RCInput::Run()
 
 					for (unsigned i = 0; i < (unsigned)newBytes; i++) {
 						/* set updated flag if one complete packet was parsed */
-						st24_rssi = RC_INPUT_RSSI_MAX;
+						st24_rssi = input_rc_s::RSSI_MAX;
 						rc_updated = (OK == st24_decode(_rcs_buf[i], &st24_rssi, &lost_count,
 										&_raw_rc_count, _raw_rc_values, input_rc_s::RC_INPUT_MAX_CHANNELS));
 					}
@@ -561,7 +568,7 @@ void RCInput::Run()
 
 					for (unsigned i = 0; i < (unsigned)newBytes; i++) {
 						/* set updated flag if one complete packet was parsed */
-						sumd_rssi = RC_INPUT_RSSI_MAX;
+						sumd_rssi = input_rc_s::RSSI_MAX;
 						rc_updated = (OK == sumd_decode(_rcs_buf[i], &sumd_rssi, &rx_count,
 										&_raw_rc_count, _raw_rc_values, input_rc_s::RC_INPUT_MAX_CHANNELS, &sumd_failsafe));
 					}
@@ -861,7 +868,7 @@ int RCInput::print_status()
 	perf_print_counter(_publish_interval_perf);
 
 	if (hrt_elapsed_time(&_rc_in.timestamp) < 1_s) {
-		print_message(_rc_in);
+		print_message(ORB_ID(input_rc), _rc_in);
 	}
 
 	return 0;

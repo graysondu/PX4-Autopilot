@@ -41,8 +41,12 @@ add_library(ecl_EKF
 	ekf_helper.cpp
 	EKFGSF_yaw.cpp
 	estimator_interface.cpp
+	fake_pos_control.cpp
 	gps_checks.cpp
+	gps_control.cpp
+	gps_fusion.cpp
 	gps_yaw_fusion.cpp
+	height_fusion.cpp
 	imu_down_sampler.cpp
 	mag_control.cpp
 	mag_fusion.cpp
@@ -52,6 +56,7 @@ add_library(ecl_EKF
 	terrain_estimator.cpp
 	utils.cpp
 	vel_pos_fusion.cpp
+	zero_velocity_update.cpp
 )
 
 add_dependencies(ecl_EKF prebuild_targets)
