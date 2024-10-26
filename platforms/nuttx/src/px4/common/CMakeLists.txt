@@ -38,7 +38,6 @@ if(NOT PX4_BOARD MATCHES "io-v2")
 		board_crashdump.c
 		board_dma_alloc.c
 		board_fat_dma_alloc.c
-		cdc_acm_check.cpp
 		console_buffer.cpp
 		cpuload.cpp
 		gpio.c
@@ -50,6 +49,7 @@ if(NOT PX4_BOARD MATCHES "io-v2")
 		px4_mtd.cpp
 		px4_24xxxx_mtd.c
 		px4_crypto.cpp
+		progmem_dump.c
 	)
 
 	# Kernel side & nuttx flat build common libraries

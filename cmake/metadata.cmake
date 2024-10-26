@@ -65,6 +65,7 @@ add_custom_target(metadata_parameters
 		--params-file ${generated_params_dir}/module_params.c
 		--timer-config ${PX4_SOURCE_DIR}/boards/px4/fmu-v5/src/timer_config.cpp # select a typical board
 		--board-with-io
+		--ethernet
 		--config-files ${yaml_config_files} #--verbose
 
 	COMMAND ${PYTHON_EXECUTABLE} ${PX4_SOURCE_DIR}/src/lib/parameters/px_process_params.py
@@ -73,13 +74,13 @@ add_custom_target(metadata_parameters
 		--markdown ${PX4_BINARY_DIR}/docs/parameters.md
 
 	COMMAND ${PYTHON_EXECUTABLE} ${PX4_SOURCE_DIR}/src/lib/parameters/px_process_params.py
-		--src-path `find ${PX4_SOURCE_DIR}/src -maxdepth 4 -type d`
+		--src-path `find ${PX4_SOURCE_DIR}/src -maxdepth 4 -type d` ${generated_params_dir}
 		--inject-xml ${PX4_SOURCE_DIR}/src/lib/parameters/parameters_injected.xml
 		--json ${PX4_BINARY_DIR}/docs/parameters.json
 		--compress
 
 	COMMAND ${PYTHON_EXECUTABLE} ${PX4_SOURCE_DIR}/src/lib/parameters/px_process_params.py
-		--src-path `find ${PX4_SOURCE_DIR}/src -maxdepth 4 -type d`
+		--src-path `find ${PX4_SOURCE_DIR}/src -maxdepth 4 -type d` ${generated_params_dir}
 		--inject-xml ${PX4_SOURCE_DIR}/src/lib/parameters/parameters_injected.xml
 		--xml ${PX4_BINARY_DIR}/docs/parameters.xml
 

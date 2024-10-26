@@ -68,7 +68,7 @@ float OutputBase::_calculate_pitch(double lon, double lat, float altitude,
 				   const vehicle_global_position_s &global_position)
 {
 	if (!_projection_reference.isInitialized()) {
-		_projection_reference.initReference(global_position.lat, global_position.lon);
+		_projection_reference.initReference(global_position.lat, global_position.lon, hrt_absolute_time());
 	}
 
 	float x1, y1, x2, y2;
@@ -213,12 +213,12 @@ void OutputBase::_calculate_angle_output(const hrt_abstime &t)
 
 	float dt = math::constrain((t - _last_update) * 1.e-6f, 0.001f, 1.f);
 
-	const bool q_setpoint_valid = PX4_ISFINITE(_q_setpoint[0]) && PX4_ISFINITE(_q_setpoint[1])
-				      && PX4_ISFINITE(_q_setpoint[2]) && PX4_ISFINITE(_q_setpoint[3]);
+	const matrix::Quatf q_setpoint(_q_setpoint);
+	const bool q_setpoint_valid = q_setpoint.isAllFinite();
 	matrix::Eulerf euler_gimbal{};
 
 	if (q_setpoint_valid) {
-		euler_gimbal = matrix::Quatf{_q_setpoint};
+		euler_gimbal = q_setpoint;
 	}
 
 	for (int i = 0; i < 3; ++i) {
@@ -260,4 +260,3 @@ void OutputBase::set_stabilize(bool roll_stabilize, bool pitch_stabilize, bool y
 }
 
 } /* namespace gimbal */
-

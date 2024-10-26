@@ -32,9 +32,12 @@
  ****************************************************************************/
 
 #include <string.h>
+
 #include "flash_cache.h"
 
 #include "hw_config.h"
+
+#include "bl.h"
 
 #include <nuttx/progmem.h>
 
@@ -54,7 +57,7 @@ inline void fc_reset(void)
 		fcl_reset(&flash_cache[w]);
 	}
 
-	flash_cache[0].start_address = APP_LOAD_ADDRESS;
+	flash_cache[0].start_address = APP_LOAD_ADDRESS + APP_VECTOR_OFFSET;
 }
 
 static inline flash_cache_line_t *fc_line_select(uintptr_t address)
@@ -76,7 +79,7 @@ inline int fc_is_dirty(flash_cache_line_t *fl)
 
 int fc_flush(flash_cache_line_t *fl)
 {
-	size_t bytes = (fl->index + 1) * sizeof(fl->words[0]);
+	const size_t bytes = sizeof(fl->words);
 	size_t rv = arch_flash_write(fl->start_address, fl->words, bytes);
 
 	if (rv == bytes) {
@@ -104,7 +107,7 @@ int fc_write(uintptr_t address, uint32_t word)
 
 		// Are we back writing the first word?
 
-		if (fc == &flash_cache[0] &&  index == 0 && fc->index == 7) {
+		if (fc == &flash_cache[0] &&  index == 0 && fc->index == FC_LAST_WORD) {
 
 			if (fc_is_dirty(fc1)) {
 

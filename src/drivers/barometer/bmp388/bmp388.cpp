@@ -68,8 +68,23 @@ BMP388::init()
 		return -EIO;
 	}
 
-	if (_interface->get_reg(BMP3_CHIP_ID_ADDR) != BMP3_CHIP_ID) {
-		PX4_WARN("id of your baro is not: 0x%02x", BMP3_CHIP_ID);
+	if (_interface->get_reg(BMP3_CHIP_ID_ADDR, &_chip_id) != OK) {
+		PX4_WARN("failed to get chip id");
+		return -EIO;
+	}
+
+	if (_chip_id != BMP388_CHIP_ID && _chip_id != BMP390_CHIP_ID) {
+		PX4_WARN("id of your baro is not: 0x%02x or 0x%02x", BMP388_CHIP_ID, BMP390_CHIP_ID);
+		return -EIO;
+	}
+
+	if (_chip_id == BMP390_CHIP_ID) {
+		_interface->set_device_type(DRV_BARO_DEVTYPE_BMP390);
+		this->_item_name = "bmp390";
+	}
+
+	if (_interface->get_reg(BMP3_REV_ID_ADDR, &_chip_rev_id) != OK) {
+		PX4_WARN("failed to get chip rev id");
 		return -EIO;
 	}
 
@@ -99,6 +114,7 @@ void
 BMP388::print_status()
 {
 	I2CSPIDriverBase::print_status();
+	printf("chip id:  0x%02x rev id:  0x%02x\n", _chip_id, _chip_rev_id);
 	perf_print_counter(_sample_perf);
 	perf_print_counter(_measure_perf);
 	perf_print_counter(_comms_errors);
@@ -194,14 +210,22 @@ BMP388::soft_reset()
 	uint8_t status;
 	int     ret;
 
-	status = _interface->get_reg(BMP3_SENS_STATUS_REG_ADDR);
+	ret = _interface->get_reg(BMP3_SENS_STATUS_REG_ADDR, &status);
+
+	if (ret != OK) {
+		return false;
+	}
 
 	if (status & BMP3_CMD_RDY) {
 		ret = _interface->set_reg(BPM3_CMD_SOFT_RESET, BMP3_CMD_ADDR);
 
 		if (ret == OK) {
 			usleep(BMP3_POST_RESET_WAIT_TIME);
-			status = _interface->get_reg(BMP3_ERR_REG_ADDR);
+			ret = _interface->get_reg(BMP3_ERR_REG_ADDR, &status);
+
+			if (ret != OK) {
+				return false;
+			}
 
 			if ((status & BMP3_CMD_ERR) == 0) {
 				result = true;
@@ -259,7 +283,9 @@ BMP388::validate_trimming_param()
 
 	crc = (crc ^ 0xFF);
 
-	stored_crc = _interface->get_reg(BMP3_TRIM_CRC_DATA_ADDR);
+	if (_interface->get_reg(BMP3_TRIM_CRC_DATA_ADDR, &stored_crc) != OK) {
+		return false;
+	}
 
 	return stored_crc == crc;
 }
@@ -394,7 +420,12 @@ BMP388::set_op_mode(uint8_t op_mode)
 	uint8_t op_mode_reg_val;
 	int     ret = OK;
 
-	op_mode_reg_val = _interface->get_reg(BMP3_PWR_CTRL_ADDR);
+	ret = _interface->get_reg(BMP3_PWR_CTRL_ADDR, &op_mode_reg_val);
+
+	if (ret != OK) {
+		return false;
+	}
+
 	last_set_mode = BMP3_GET_BITS(op_mode_reg_val, BMP3_OP_MODE);
 
 	/* Device needs to be put in sleep mode to transition */
@@ -410,7 +441,12 @@ BMP388::set_op_mode(uint8_t op_mode)
 	}
 
 	if (ret == OK) {
-		op_mode_reg_val = _interface->get_reg(BMP3_PWR_CTRL_ADDR);
+		ret = _interface->get_reg(BMP3_PWR_CTRL_ADDR, &op_mode_reg_val);
+
+		if (ret != OK) {
+			return false;
+		}
+
 		op_mode_reg_val = BMP3_SET_BITS(op_mode_reg_val, BMP3_OP_MODE, op_mode);
 		ret = _interface->set_reg(op_mode_reg_val, BMP3_PWR_CTRL_ADDR);
 

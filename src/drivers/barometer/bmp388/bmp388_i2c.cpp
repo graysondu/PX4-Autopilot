@@ -49,7 +49,7 @@ public:
 
 	int init();
 
-	uint8_t get_reg(uint8_t addr);
+	int get_reg(uint8_t addr, uint8_t *value);
 	int get_reg_buf(uint8_t addr, uint8_t *buf, uint8_t len);
 	int set_reg(uint8_t value, uint8_t addr);
 	calibration_s *get_calibration(uint8_t addr);
@@ -58,6 +58,7 @@ public:
 
 	uint8_t get_device_address() const override { return device::I2C::get_device_address(); }
 
+	void set_device_type(uint8_t devtype);
 private:
 	struct calibration_s _cal;
 };
@@ -77,12 +78,10 @@ int BMP388_I2C::init()
 	return I2C::init();
 }
 
-uint8_t BMP388_I2C::get_reg(uint8_t addr)
+int BMP388_I2C::get_reg(uint8_t addr, uint8_t *value)
 {
-	uint8_t cmd[2] = { (uint8_t)(addr), 0};
-	transfer(&cmd[0], 1, &cmd[1], 1);
-
-	return cmd[1];
+	const uint8_t cmd = (uint8_t)(addr);
+	return transfer(&cmd, sizeof(cmd), value, 1);
 }
 
 int BMP388_I2C::get_reg_buf(uint8_t addr, uint8_t *buf, uint8_t len)
@@ -107,4 +106,9 @@ calibration_s *BMP388_I2C::get_calibration(uint8_t addr)
 	} else {
 		return nullptr;
 	}
+}
+
+void BMP388_I2C::set_device_type(uint8_t devtype)
+{
+	device::Device::set_device_type(devtype);
 }

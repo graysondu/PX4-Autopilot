@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2019, 2021 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2022 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -91,21 +91,23 @@ public:
 private:
 
 	enum RC_SCAN {
-		RC_SCAN_PPM = 0,
-		RC_SCAN_SBUS,
-		RC_SCAN_DSM,
-		RC_SCAN_SUMD,
-		RC_SCAN_ST24,
-		RC_SCAN_CRSF,
-		RC_SCAN_GHST
+		RC_SCAN_NONE = 0,
+		RC_SCAN_PPM  = 1,
+		RC_SCAN_SBUS = 2,
+		RC_SCAN_DSM  = 3,
+		RC_SCAN_ST24 = 5,
+		RC_SCAN_SUMD = 4,
+		RC_SCAN_CRSF = 6,
+		RC_SCAN_GHST = 7,
 	} _rc_scan_state{RC_SCAN_SBUS};
 
-	static constexpr char const *RC_SCAN_STRING[7] {
+	static constexpr char const *RC_SCAN_STRING[] {
+		"None",
 		"PPM",
 		"SBUS",
 		"DSM",
-		"SUMD",
 		"ST24",
+		"SUMD",
 		"CRSF",
 		"GHST"
 	};
@@ -116,20 +118,21 @@ private:
 	bool bind_spektrum(int arg = DSMX8_BIND_PULSES) const;
 #endif // SPEKTRUM_POWER
 
-	void fill_rc_in(uint16_t raw_rc_count_local,
-			uint16_t raw_rc_values_local[input_rc_s::RC_INPUT_MAX_CHANNELS],
-			hrt_abstime now, bool frame_drop, bool failsafe,
-			unsigned frame_drops, int rssi);
+	int32_t fill_rc_in(uint16_t raw_rc_count_local,
+			   uint16_t raw_rc_values_local[input_rc_s::RC_INPUT_MAX_CHANNELS],
+			   hrt_abstime now, bool frame_drop, bool failsafe,
+			   unsigned frame_drops, int rssi);
 
 	void set_rc_scan_state(RC_SCAN _rc_scan_state);
 
 	void rc_io_invert(bool invert);
+	void swap_rx_tx(void);
 
+	input_rc_s _input_rc{};
 	hrt_abstime _rc_scan_begin{0};
 
 	bool _initialized{false};
 	bool _rc_scan_locked{false};
-	bool _report_lock{true};
 
 	static constexpr unsigned	_current_update_interval{4000}; // 250 Hz
 
@@ -139,15 +142,12 @@ private:
 	uORB::Subscription	_vehicle_cmd_sub{ORB_ID(vehicle_command)};
 	uORB::Subscription	_vehicle_status_sub{ORB_ID(vehicle_status)};
 
-	input_rc_s	_rc_in{};
+	uORB::PublicationMulti<input_rc_s> _input_rc_pub{ORB_ID(input_rc)};
 
 	float		_analog_rc_rssi_volt{-1.0f};
 	bool		_analog_rc_rssi_stable{false};
 
 	bool _armed{false};
-
-
-	uORB::PublicationMulti<input_rc_s>	_to_input_rc{ORB_ID(input_rc)};
 
 	int		_rcs_fd{-1};
 	char		_device[20] {};					///< device / serial port path
@@ -168,6 +168,7 @@ private:
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::RC_RSSI_PWM_CHAN>) _param_rc_rssi_pwm_chan,
 		(ParamInt<px4::params::RC_RSSI_PWM_MIN>) _param_rc_rssi_pwm_min,
-		(ParamInt<px4::params::RC_RSSI_PWM_MAX>) _param_rc_rssi_pwm_max
+		(ParamInt<px4::params::RC_RSSI_PWM_MAX>) _param_rc_rssi_pwm_max,
+		(ParamInt<px4::params::RC_INPUT_PROTO>) _param_rc_input_proto
 	)
 };

@@ -32,12 +32,13 @@
  ****************************************************************************/
 
 /**
- * @file HMC5883_I2C.cpp
+ * @file hmc5883_i2c.cpp
  *
  * I2C interface for HMC5883 / HMC 5983
  */
 
 #include <px4_platform_common/px4_config.h>
+#include <px4_platform_common/log.h>
 #include <drivers/device/i2c.h>
 
 #include "hmc5883.h"

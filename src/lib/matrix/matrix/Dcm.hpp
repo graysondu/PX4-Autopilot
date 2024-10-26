@@ -15,19 +15,20 @@
 
 #pragma once
 
-#include "math.hpp"
+#include "SquareMatrix.hpp"
+#include "Vector3.hpp"
 
 namespace matrix
 {
 
 template<typename Type>
-class Quaternion;
+class AxisAngle;
 
 template<typename Type>
 class Euler;
 
 template<typename Type>
-class AxisAngle;
+class Quaternion;
 
 /**
  * Direction cosine matrix class
@@ -39,8 +40,6 @@ template<typename Type>
 class Dcm : public SquareMatrix<Type, 3>
 {
 public:
-	using Vector3 = Matrix<Type, 3, 1>;
-
 	/**
 	 * Standard constructor
 	 *
@@ -90,7 +89,6 @@ public:
 		const Type b = q(1);
 		const Type c = q(2);
 		const Type d = q(3);
-		const Type aa = a * a;
 		const Type ab = a * b;
 		const Type ac = a * c;
 		const Type ad = a * d;
@@ -100,15 +98,15 @@ public:
 		const Type cc = c * c;
 		const Type cd = c * d;
 		const Type dd = d * d;
-		dcm(0, 0) = aa + bb - cc - dd;
+		dcm(0, 0) = Type(1) - Type(2) * (cc + dd);
 		dcm(0, 1) = Type(2) * (bc - ad);
 		dcm(0, 2) = Type(2) * (ac + bd);
 		dcm(1, 0) = Type(2) * (bc + ad);
-		dcm(1, 1) = aa - bb + cc - dd;
+		dcm(1, 1) = Type(1) - Type(2) * (bb + dd);
 		dcm(1, 2) = Type(2) * (cd - ab);
 		dcm(2, 0) = Type(2) * (bd - ac);
 		dcm(2, 1) = Type(2) * (ab + cd);
-		dcm(2, 2) = aa - bb - cc + dd;
+		dcm(2, 2) = Type(1) - Type(2) * (bb + cc);
 	}
 
 	/**
@@ -123,12 +121,12 @@ public:
 	Dcm(const Euler<Type> &euler)
 	{
 		Dcm &dcm = *this;
-		Type cosPhi = Type(cos(euler.phi()));
-		Type sinPhi = Type(sin(euler.phi()));
-		Type cosThe = Type(cos(euler.theta()));
-		Type sinThe = Type(sin(euler.theta()));
-		Type cosPsi = Type(cos(euler.psi()));
-		Type sinPsi = Type(sin(euler.psi()));
+		Type cosPhi = Type(std::cos(euler.phi()));
+		Type sinPhi = Type(std::sin(euler.phi()));
+		Type cosThe = Type(std::cos(euler.theta()));
+		Type sinThe = Type(std::sin(euler.theta()));
+		Type cosPsi = Type(std::cos(euler.psi()));
+		Type sinPsi = Type(std::sin(euler.psi()));
 
 		dcm(0, 0) = cosThe * cosPsi;
 		dcm(0, 1) = -cosPhi * sinPsi + sinPhi * sinThe * cosPsi;
@@ -159,14 +157,10 @@ public:
 		dcm = Quaternion<Type>(aa);
 	}
 
-	Vector<Type, 3> vee() const      // inverse to Vector.hat() operation
+	Vector3<Type> vee() const // inverse to Vector.hat() operation
 	{
 		const Dcm &A(*this);
-		Vector<Type, 3> v;
-		v(0) = -A(1, 2);
-		v(1) =  A(0, 2);
-		v(2) = -A(0, 1);
-		return v;
+		return {-A(1, 2), A(0, 2), -A(0, 1)};
 	}
 
 	void renormalize()

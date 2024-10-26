@@ -39,8 +39,9 @@
 #include <nuttx/ioexpander/gpio.h>
 #endif
 
-ADC::ADC(uint32_t base_address, uint32_t channels) :
+ADC::ADC(uint32_t base_address, uint32_t channels, bool publish_adc_report) :
 	ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::hp_default),
+	_publish_adc_report(publish_adc_report),
 	_sample_perf(perf_alloc(PC_ELAPSED, MODULE_NAME": sample")),
 	_base_address(base_address)
 {
@@ -55,7 +56,7 @@ ADC::ADC(uint32_t base_address, uint32_t channels) :
 	}
 
 	if (_channel_count > PX4_MAX_ADC_CHANNELS) {
-		PX4_ERR("PX4_MAX_ADC_CHANNELS is too small (%u, %u)", PX4_MAX_ADC_CHANNELS, _channel_count);
+		PX4_ERR("PX4_MAX_ADC_CHANNELS is too small (%zu, %u)", PX4_MAX_ADC_CHANNELS, _channel_count);
 	}
 
 	_samples = new px4_adc_msg_t[_channel_count];
@@ -116,7 +117,10 @@ void ADC::Run()
 		_samples[i].am_data = sample(_samples[i].am_channel);
 	}
 
-	update_adc_report(now);
+	if (_publish_adc_report) {
+		update_adc_report(now);
+	}
+
 	update_system_power(now);
 }
 
@@ -206,7 +210,8 @@ void ADC::update_system_power(hrt_abstime now)
 
 		if (_samples[i].am_channel == ADC_SCALED_V5_SENSE) {
 			// it is 2:1 scaled
-			system_power.voltage5v_v = _samples[i].am_data * (ADC_V5_V_FULL_SCALE / px4_arch_adc_dn_fullcount());
+			system_power.voltage5v_v = _samples[i].am_data * ((ADC_V5_V_FULL_SCALE / 3.3f) * (px4_arch_adc_reference_v() /
+						   px4_arch_adc_dn_fullcount()));
 			cnt--;
 
 		} else
@@ -220,7 +225,8 @@ void ADC::update_system_power(hrt_abstime now)
 			for (int j = 0; j < ADC_SCALED_V3V3_SENSORS_COUNT; ++j) {
 				if (_samples[i].am_channel == sensors_channels[j]) {
 					// it is 2:1 scaled
-					system_power.sensors3v3[j] = _samples[i].am_data * (ADC_3V3_SCALE * (3.3f / px4_arch_adc_dn_fullcount()));
+					system_power.sensors3v3[j] = _samples[i].am_data * (ADC_3V3_SCALE * (px4_arch_adc_reference_v() /
+								     px4_arch_adc_dn_fullcount()));
 					system_power.sensors3v3_valid |= 1 << j;
 					cnt--;
 				}
@@ -352,7 +358,8 @@ int ADC::custom_command(int argc, char *argv[])
 
 int ADC::task_spawn(int argc, char *argv[])
 {
-	ADC *instance = new ADC(SYSTEM_ADC_BASE, ADC_CHANNELS);
+	bool publish_adc_report = !(argc >= 2 && strcmp(argv[1], "-n") == 0);
+	ADC *instance = new ADC(SYSTEM_ADC_BASE, ADC_CHANNELS, publish_adc_report);
 
 	if (instance) {
 		_object.store(instance);
@@ -389,6 +396,7 @@ ADC driver.
 	PRINT_MODULE_USAGE_NAME("adc", "driver");
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_COMMAND("test");
+	PRINT_MODULE_USAGE_PARAM_FLAG('n', "Do not publish ADC report, only system power", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

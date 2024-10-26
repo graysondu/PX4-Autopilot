@@ -32,7 +32,7 @@
  ****************************************************************************/
 
 /**
- * @file crazyflie_usb.c
+ * @file usb.c
  *
  * Board-specific USB functions.
  */
@@ -51,7 +51,7 @@
 #include <nuttx/usb/usbdev.h>
 #include <nuttx/usb/usbdev_trace.h>
 
-#include <arm_arch.h>
+#include <arm_internal.h>
 #include <stm32.h>
 #include "board_config.h"
 
@@ -105,4 +105,3 @@ __EXPORT void stm32_usbsuspend(FAR struct usbdev_s *dev, bool resume)
 {
 	uinfo("resume: %d\n", resume);
 }
-

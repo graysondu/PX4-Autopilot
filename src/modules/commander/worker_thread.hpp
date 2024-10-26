@@ -64,6 +64,7 @@ public:
 		ParamSaveDefault,
 		ParamResetAll,
 		ParamResetSensorFactory,
+		ParamResetAllConfig
 	};
 
 	WorkerThread() = default;
@@ -99,4 +100,3 @@ private:
 	float _longitude;
 
 };
-

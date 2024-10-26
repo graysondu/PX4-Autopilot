@@ -55,12 +55,15 @@ def perform_imu_checks(
 
     # perform the vibration check
     imu_status['imu_vibration_check'] = 'Pass'
-    for imu_vibr_metric in ['imu_coning', 'imu_hfdang', 'imu_hfdvel']:
-        mean_metric = '{:s}_mean'.format(imu_vibr_metric)
-        peak_metric = '{:s}_peak'.format(imu_vibr_metric)
-        if imu_metrics[mean_metric] > check_levels['{:s}_warn'.format(mean_metric)] \
-                or imu_metrics[peak_metric] > check_levels['{:s}_warn'.format(peak_metric)]:
-            imu_status['imu_vibration_check'] = 'Warning'
+    for imu_vibr_metric in ['imu_coning', 'imu_hfgyro', 'imu_hfaccel']:
+        mean_metric = '{:s}_mean_warn'.format(imu_vibr_metric)
+        peak_metric = '{:s}_peak_warn'.format(imu_vibr_metric)
+        mean_key = '{:s}_mean'.format(imu_vibr_metric)
+        peak_key = '{:s}_peak'.format(imu_vibr_metric)
+        if mean_key in imu_metrics and peak_key in imu_metrics:
+            if imu_metrics[mean_key] > check_levels[mean_metric] \
+                   or imu_metrics[peak_key] > check_levels[peak_metric]:
+                imu_status['imu_vibration_check'] = 'Warning'
 
     if imu_status['imu_vibration_check'] == 'Warning':
         print('IMU vibration check warning.')
@@ -123,7 +126,8 @@ def perform_sensor_innov_checks(
                                               ('magy', 'magy_fail_percentage', 'mag'),
                                               ('magz', 'magz_fail_percentage', 'mag'),
                                               ('yaw', 'yaw_fail_percentage', 'yaw'),
-                                              ('vel', 'vel_fail_percentage', 'vel'),
+                                              ('velh', 'vel_fail_percentage', 'vel'),
+                                              ('velv', 'vel_fail_percentage', 'vel'),
                                               ('posh', 'pos_fail_percentage', 'pos'),
                                               ('tas', 'tas_fail_percentage', 'tas'),
                                               ('hagl', 'hagl_fail_percentage', 'hagl'),

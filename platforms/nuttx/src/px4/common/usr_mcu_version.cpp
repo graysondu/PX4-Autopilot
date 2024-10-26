@@ -33,18 +33,21 @@
  ****************************************************************************/
 
 /**
- * @file usr_mcu_version.c
+ * @file usr_mcu_version.cpp
  * Implementation of generic user-space version API
  */
 
+#include <systemlib/px4_macros.h>
+#include <px4_platform_common/log.h>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
+#include <px4_platform/board_determine_hw_info.h>
 
 #include "board_config.h"
 
 static int hw_version = 0;
 static int hw_revision = 0;
-static char hw_info[] = HW_INFO_INIT;
+static char hw_info[] = HW_INFO_INIT_PREFIX HW_INFO_SUFFIX;
 
 __EXPORT const char *board_get_hw_type_name(void)
 {
@@ -111,4 +114,3 @@ int board_get_px4_guid_formated(char *format_buffer, int size)
 
 	return offset;
 }
-

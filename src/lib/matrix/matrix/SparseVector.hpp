@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "math.hpp"
+#include "Vector.hpp"
 
 namespace matrix
 {
@@ -176,7 +176,7 @@ public:
 
 	Type norm() const
 	{
-		return matrix::sqrt(norm_squared());
+		return std::sqrt(norm_squared());
 	}
 
 	bool longerThan(Type testVal) const

@@ -19,7 +19,7 @@
 #if defined(CONFIG_ARCH_BOARD_PX4_SITL)
 #define TEST_DATA_PATH "./test_data/"
 #else
-#define TEST_DATA_PATH "/fs/microsd"
+#define TEST_DATA_PATH CONFIG_BOARD_ROOT_PATH
 #endif
 
 extern "C" __EXPORT int rc_tests_main(int argc, char *argv[]);
@@ -36,6 +36,7 @@ private:
 	bool dsmTest10Ch();
 	bool dsmTest16Ch();
 	bool dsmTest22msDSMX16Ch();
+	bool dsmTestOrangeDsmx();
 	bool sbus2Test();
 	bool st24Test();
 	bool sumdTest();
@@ -48,6 +49,7 @@ bool RCTest::run_tests()
 	ut_run_test(dsmTest10Ch);
 	ut_run_test(dsmTest16Ch);
 	ut_run_test(dsmTest22msDSMX16Ch);
+	ut_run_test(dsmTestOrangeDsmx);
 	ut_run_test(sbus2Test);
 	ut_run_test(st24Test);
 	ut_run_test(sumdTest);
@@ -231,17 +233,22 @@ bool RCTest::ghstTest()
 
 bool RCTest::dsmTest10Ch()
 {
-	return dsmTest(TEST_DATA_PATH "dsm_x_data.txt", 10, 17, 1500);
+	return dsmTest(TEST_DATA_PATH "dsm_x_data.txt", 10, 2, 1500);
 }
 
 bool RCTest::dsmTest16Ch()
 {
-	return dsmTest(TEST_DATA_PATH "dsm_x_dx9_data.txt", 16, 6, 1500);
+	return dsmTest(TEST_DATA_PATH "dsm_x_dx9_data.txt", 16, 1, 1500);
 }
 
 bool RCTest::dsmTest22msDSMX16Ch()
 {
-	return dsmTest(TEST_DATA_PATH "dsm_x_dx9_px4_binding_data.txt", 16, 11, 1499);
+	return dsmTest(TEST_DATA_PATH "dsm_x_dx9_px4_binding_data.txt", 16, 1, 1499);
+}
+
+bool RCTest::dsmTestOrangeDsmx()
+{
+	return dsmTest(TEST_DATA_PATH "orangerx_dsmx_12.txt", 12, 1, 1499);
 }
 
 bool RCTest::dsmTest(const char *filepath, unsigned expected_chancount, unsigned expected_dropcount, unsigned chan0)
@@ -352,7 +359,6 @@ bool RCTest::sbus2Test()
 	bool sbus_frame_drop;
 	uint16_t max_channels = sizeof(rc_values) / sizeof(rc_values[0]);
 
-	int rate_limiter = 0;
 	unsigned last_drop = 0;
 
 	while (EOF != (ret = fscanf(fp, "%f,%x,,", &f, &x))) {
@@ -383,7 +389,6 @@ bool RCTest::sbus2Test()
 			last_drop = sbus_frame_drops + sbus_frame_resets;
 		}
 
-		rate_limiter++;
 	}
 
 	ut_test(ret == EOF);
@@ -515,7 +520,4 @@ bool RCTest::sumdTest()
 	return true;
 }
 
-
-
 ut_declare_test_c(rc_tests_main, RCTest)
-

@@ -66,7 +66,7 @@ public:
 
 	int init();
 
-	uint8_t get_reg(uint8_t addr);
+	int get_reg(uint8_t addr, uint8_t *value);
 	int get_reg_buf(uint8_t addr, uint8_t *buf, uint8_t len);
 	int set_reg(uint8_t value, uint8_t addr);
 	calibration_s *get_calibration(uint8_t addr);
@@ -74,6 +74,8 @@ public:
 	uint32_t get_device_id() const override { return device::SPI::get_device_id(); }
 
 	uint8_t get_device_address() const override { return device::SPI::get_device_address(); }
+
+	void set_device_type(uint8_t devtype);
 private:
 	spi_calibration_s _cal;
 };
@@ -93,12 +95,16 @@ int BMP388_SPI::init()
 	return SPI::init();
 };
 
-uint8_t BMP388_SPI::get_reg(uint8_t addr)
+int BMP388_SPI::get_reg(uint8_t addr, uint8_t *value)
 {
 	uint8_t cmd[2] = { (uint8_t)(addr | DIR_READ), 0}; //set MSB bit
-	transfer(&cmd[0], &cmd[0], 2);
+	int ret = transfer(&cmd[0], &cmd[0], 2);
 
-	return cmd[1];
+	if (ret == OK) {
+		*value = cmd[1];
+	}
+
+	return ret;
 }
 
 int BMP388_SPI::get_reg_buf(uint8_t addr, uint8_t *buf, uint8_t len)
@@ -123,4 +129,9 @@ calibration_s *BMP388_SPI::get_calibration(uint8_t addr)
 	} else {
 		return nullptr;
 	}
+}
+
+void BMP388_SPI::set_device_type(uint8_t devtype)
+{
+	device::Device::set_device_type(devtype);
 }

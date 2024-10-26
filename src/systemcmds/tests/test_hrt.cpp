@@ -32,11 +32,12 @@
  ****************************************************************************/
 
 /**
- * @file test_hrt.c
+ * @file test_hrt.cpp
  * Tests the high resolution timer.
  */
 
 #include <drivers/drv_hrt.h>
+#include <px4_platform_common/log.h>
 #include <px4_platform_common/posix.h>
 #include <sys/time.h>
 

@@ -90,10 +90,11 @@ PARAM_DEFINE_INT32(MAV_SIK_RADIO_ID, 0);
  * @value 13 Hexarotor
  * @value 14 Octorotor
  * @value 15 Tricopter
- * @value 19 VTOL Tailsitter Duo
- * @value 20 VTOL Tailsitter Quad
+ * @value 19 VTOL Two-rotor Tailsitter
+ * @value 20 VTOL Quad-rotor Tailsitter
  * @value 21 VTOL Tiltrotor
- * @value 22 VTOL Standard (quadplane)
+ * @value 22 VTOL Standard (separate fixed rotors for hover and cruise flight)
+ * @value 23 VTOL Tailsitter
  * @group MAVLink
  */
 PARAM_DEFINE_INT32(MAV_TYPE, 0);
@@ -140,17 +141,6 @@ PARAM_DEFINE_INT32(MAV_HASH_CHK_EN, 1);
  * @group MAVLink
  */
 PARAM_DEFINE_INT32(MAV_HB_FORW_EN, 1);
-
-/**
- * Activate ODOMETRY loopback.
- *
- * If set, it gets the data from 'vehicle_visual_odometry' instead of 'vehicle_odometry'
- * serving as a loopback of the received ODOMETRY messages on the Mavlink receiver.
- *
- * @boolean
- * @group MAVLink
- */
-PARAM_DEFINE_INT32(MAV_ODOM_LP, 0);
 
 /**
  * Timeout in seconds for the RADIO_STATUS reports coming in

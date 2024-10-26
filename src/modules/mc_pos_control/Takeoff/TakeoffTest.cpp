@@ -38,15 +38,15 @@
 
 TEST(TakeoffTest, Initialization)
 {
-	Takeoff takeoff;
+	TakeoffHandling takeoff;
 	EXPECT_EQ(takeoff.getTakeoffState(), TakeoffState::disarmed);
 }
 
 TEST(TakeoffTest, RegularTakeoffRamp)
 {
-	Takeoff takeoff;
+	TakeoffHandling takeoff;
 	takeoff.setSpoolupTime(1.f);
-	takeoff.setTakeoffRampTime(2.0);
+	takeoff.setTakeoffRampTime(2.f);
 	takeoff.generateInitialRampValue(CONSTANTS_ONE_G / 0.5f);
 
 	// disarmed, landed, don't want takeoff

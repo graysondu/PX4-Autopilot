@@ -2,7 +2,7 @@
 
 set -e
 
-## Bash script to setup PX4 development environment on Ubuntu LTS (20.04, 18.04, 16.04).
+## Bash script to setup PX4 development environment on Ubuntu LTS (22.04, 20.04, 18.04).
 ## Can also be used in docker.
 ##
 ## Installs:
@@ -10,8 +10,6 @@ set -e
 ## - NuttX toolchain (omit with arg: --no-nuttx)
 ## - jMAVSim and Gazebo9 simulator (omit with arg: --no-sim-tools)
 ##
-## Not Installs:
-## - FastRTPS and FastCDR
 
 INSTALL_NUTTX="true"
 INSTALL_SIM="true"
@@ -27,7 +25,6 @@ do
 	if [[ $arg == "--no-sim-tools" ]]; then
 		INSTALL_SIM="false"
 	fi
-
 done
 
 # detect if running in docker
@@ -67,6 +64,10 @@ elif [[ "${UBUNTU_RELEASE}" == "18.04" ]]; then
 	echo "Ubuntu 18.04"
 elif [[ "${UBUNTU_RELEASE}" == "20.04" ]]; then
 	echo "Ubuntu 20.04"
+elif [[ "${UBUNTU_RELEASE}" == "22.04" ]]; then
+	echo "Ubuntu 22.04"
+elif [[ "${UBUNTU_RELEASE}" == "21.3" ]]; then
+	echo "Linux Mint 21.3"
 fi
 
 
@@ -85,6 +86,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends i
 	gdb \
 	git \
 	lcov \
+	libfuse2 \
 	libxml2-dev \
 	libxml2-utils \
 	make \
@@ -104,7 +106,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends i
 echo
 echo "Installing PX4 Python3 dependencies"
 if [ -n "$VIRTUAL_ENV" ]; then
-	# virtual envrionments don't allow --user option
+	# virtual environments don't allow --user option
 	python -m pip install -r ${DIR}/requirements.txt
 else
 	# older versions of Ubuntu require --user option
@@ -146,7 +148,7 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 		util-linux \
 		vim-common \
 		;
-	if [[ "${UBUNTU_RELEASE}" == "20.04" ]]; then
+	if [[ "${UBUNTU_RELEASE}" == "20.04" || "${UBUNTU_RELEASE}" == "22.04" || "${UBUNTU_RELEASE}" == "21.3" ]]; then
 		sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends install \
 		kconfig-frontends \
 		;
@@ -155,7 +157,7 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 
 	if [ -n "$USER" ]; then
 		# add user to dialout group (serial port access)
-		sudo usermod -a -G dialout $USER
+		sudo usermod -aG dialout $USER
 	fi
 
 	# arm-none-eabi-gcc
@@ -165,7 +167,7 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 	source $HOME/.profile # load changed path for the case the script is reran before relogin
 	if [ $(which arm-none-eabi-gcc) ]; then
 		GCC_VER_STR=$(arm-none-eabi-gcc --version)
-		GCC_FOUND_VER=$(echo $GCC_VER_STR | grep -c "${NUTTX_GCC_VERSION}")
+		GCC_FOUND_VER=$(echo $GCC_VER_STR | grep -c "${NUTTX_GCC_VERSION}" || true)
 	fi
 
 	if [[ "$GCC_FOUND_VER" == "1" ]]; then
@@ -183,6 +185,7 @@ if [[ $INSTALL_NUTTX == "true" ]]; then
 			echo "${NUTTX_GCC_VERSION} path already set.";
 		else
 			echo $exportline >> $HOME/.profile;
+			source $HOME/.profile; # Allows to directly build NuttX targets in the same terminal
 		fi
 	fi
 fi
@@ -200,15 +203,16 @@ if [[ $INSTALL_SIM == "true" ]]; then
 
 	if [[ "${UBUNTU_RELEASE}" == "18.04" ]]; then
 		java_version=11
-		gazebo_version=9
 	elif [[ "${UBUNTU_RELEASE}" == "20.04" ]]; then
 		java_version=13
-		gazebo_version=11
+	elif [[ "${UBUNTU_RELEASE}" == "22.04" ]]; then
+		java_version=11
+	elif [[ "${UBUNTU_RELEASE}" == "21.3" ]]; then
+		java_version=11
 	else
 		java_version=14
-		gazebo_version=11
 	fi
-	# Java (jmavsim or fastrtps)
+	# Java (jmavsim)
 	sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends install \
 		ant \
 		openjdk-$java_version-jre \
@@ -219,21 +223,54 @@ if [[ $INSTALL_SIM == "true" ]]; then
 	# Set Java 11 as default
 	sudo update-alternatives --set java $(update-alternatives --list java | grep "java-$java_version")
 
-	# Gazebo
-	sudo sh -c 'echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable `lsb_release -cs` main" > /etc/apt/sources.list.d/gazebo-stable.list'
-	wget http://packages.osrfoundation.org/gazebo.key -O - | sudo apt-key add -
-	# Update list, since new gazebo-stable.list has been added
-	sudo apt-get update -y --quiet
+	# Gazebo / Gazebo classic installation
+	if [[ "${UBUNTU_RELEASE}" == "22.04" ]]; then
+		echo "Gazebo (Harmonic) will be installed"
+		echo "Earlier versions will be removed"
+		# Add Gazebo binary repository
+		sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+		echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+		sudo apt-get update -y --quiet
+
+		# Install Gazebo
+		gazebo_packages="gz-harmonic"
+	elif [[ "${UBUNTU_RELEASE}" == "21.3" ]]; then
+		echo "Gazebo (Garden) will be installed"
+		echo "Earlier versions will be removed"
+		# Add Gazebo binary repository
+		sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+		echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable jammy main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+
+		sudo apt-get update -y --quiet
+
+		# Install Gazebo
+		gazebo_packages="gz-garden"
+	else
+		sudo sh -c 'echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable `lsb_release -cs` main" > /etc/apt/sources.list.d/gazebo-stable.list'
+		wget http://packages.osrfoundation.org/gazebo.key -O - | sudo apt-key add -
+		# Update list, since new gazebo-stable.list has been added
+		sudo apt-get update -y --quiet
+
+		# Install Gazebo classic
+		if [[ "${UBUNTU_RELEASE}" == "18.04" ]]; then
+			gazebo_classic_version=9
+			gazebo_packages="gazebo$gazebo_classic_version libgazebo$gazebo_classic_version-dev"
+		else
+			# default and Ubuntu 20.04
+			gazebo_classic_version=11
+			gazebo_packages="gazebo$gazebo_classic_version libgazebo$gazebo_classic_version-dev"
+		fi
+	fi
+
 	sudo DEBIAN_FRONTEND=noninteractive apt-get -y --quiet --no-install-recommends install \
 		dmidecode \
-		gazebo$gazebo_version \
+		$gazebo_packages \
 		gstreamer1.0-plugins-bad \
 		gstreamer1.0-plugins-base \
 		gstreamer1.0-plugins-good \
 		gstreamer1.0-plugins-ugly \
 		gstreamer1.0-libav \
 		libeigen3-dev \
-		libgazebo$gazebo_version-dev \
 		libgstreamer-plugins-base1.0-dev \
 		libimage-exiftool-perl \
 		libopencv-dev \
@@ -246,6 +283,7 @@ if [[ $INSTALL_SIM == "true" ]]; then
 		# fix VMWare 3D graphics acceleration for gazebo
 		echo "export SVGA_VGPU10=0" >> ~/.profile
 	fi
+
 fi
 
 if [[ $INSTALL_NUTTX == "true" ]]; then

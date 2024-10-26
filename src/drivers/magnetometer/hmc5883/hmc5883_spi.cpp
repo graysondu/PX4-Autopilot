@@ -32,12 +32,13 @@
  ****************************************************************************/
 
 /**
- * @file HMC5883_SPI.cpp
+ * @file hmc5883_spi.cpp
  *
  * SPI interface for HMC5983
  */
 
 #include <px4_platform_common/px4_config.h>
+#include <px4_platform_common/log.h>
 #include <drivers/device/spi.h>
 
 #include "hmc5883.h"

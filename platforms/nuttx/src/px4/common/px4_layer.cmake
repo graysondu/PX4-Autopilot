@@ -2,7 +2,8 @@
 
 add_library(px4_layer
 		${KERNEL_SRCS}
-		cdc_acm_check.cpp
+		${PX4_SOURCE_DIR}/platforms/common/Serial.cpp
+		SerialImpl.cpp
 	)
 
 target_link_libraries(px4_layer
@@ -20,3 +21,5 @@ if (DEFINED PX4_CRYPTO)
 			crypto_backend
 	)
 endif()
+
+target_link_libraries(px4_layer PRIVATE px4_platform)
