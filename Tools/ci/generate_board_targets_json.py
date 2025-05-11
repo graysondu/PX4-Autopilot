@@ -25,9 +25,15 @@ parser.add_argument('-p', '--pretty', dest='pretty', action='store_true',
                     help='Pretty output instead of a single line')
 parser.add_argument('-g', '--groups', dest='group', action='store_true',
                     help='Groups targets')
+parser.add_argument('-f', '--filter', dest='filter', help='comma separated list of board names to use instead of all')
 
 args = parser.parse_args()
 verbose = args.verbose
+
+board_filter = []
+if args.filter:
+    for board in args.filter.split(','):
+        board_filter.append(board)
 
 build_configs = []
 grouped_targets = {}
@@ -63,11 +69,11 @@ def process_target(px4board_file, target_name):
     group = None
 
     if px4board_file.endswith("default.px4board") or \
-        px4board_file.endswith("recovery.px4board") or \
+        px4board_file.endswith("performance-test.px4board") or \
         px4board_file.endswith("bootloader.px4board"):
         kconf.load_config(px4board_file, replace=True)
     else: # Merge config with default.px4board
-        default_kconfig = re.sub(r'[a-zA-Z\d_]+\.px4board', 'default.px4board', px4board_file)
+        default_kconfig = re.sub(r'[a-zA-Z\d_-]+\.px4board', 'default.px4board', px4board_file)
         kconf.load_config(default_kconfig, replace=True)
         kconf.load_config(px4board_file, replace=False)
 
@@ -81,19 +87,25 @@ def process_target(px4board_file, target_name):
 
     if platform not in excluded_platforms:
         # get the container based on the platform and toolchain
+        # TODO enable once newer container is validated
+        # container = 'ghcr.io/px4/px4-dev:v1.16.0-alpha2-419-gd48631e2ce'
         if platform == 'posix':
+            # TODO remove once newer container is validated
             container = 'px4io/px4-dev-base-focal:2021-09-08'
             group = 'base'
             if toolchain:
                 if toolchain.startswith('aarch64'):
+                    # TODO remove once newer container is validated
                     container = 'px4io/px4-dev-aarch64:2022-08-12'
                     group = 'aarch64'
                 elif toolchain == 'arm-linux-gnueabihf':
+                    # TODO remove once newer container is validated
                     container = 'px4io/px4-dev-armhf:2023-06-26'
                     group = 'armhf'
                 else:
                     if verbose: print(f'unmatched toolchain: {toolchain}')
         elif platform == 'nuttx':
+            # TODO remove once newer container is validated
             container = 'px4io/px4-dev-nuttx-focal:2022-08-12'
             group = 'nuttx'
         else:
@@ -118,7 +130,10 @@ if(verbose):
 # - Events
 metadata_targets = ['airframe_metadata', 'parameters_metadata', 'extract_events']
 grouped_targets['base'] = {}
+# TODO remove once newer container is validated
 grouped_targets['base']['container'] = 'px4io/px4-dev-base-focal:2021-09-08'
+# TODO enable once newer container is validated
+#grouped_targets['base']['container'] = 'ghcr.io/px4/px4-dev:v1.16.0-alpha2-419-gd48631e2ce'
 grouped_targets['base']['manufacturers'] = {}
 grouped_targets['base']['manufacturers']['px4'] = []
 grouped_targets['base']['manufacturers']['px4'] += metadata_targets
@@ -140,6 +155,10 @@ for manufacturer in os.scandir(os.path.join(source_dir, '../boards')):
                 board_name = manufacturer.name + '_' + board.name
                 label = files.name[:-9]
                 target_name = manufacturer.name + '_' + board.name + '_' + label
+
+                if board_filter and not board_name in board_filter:
+                    if verbose: print(f'excluding board {board_name} ({target_name})')
+                    continue
 
                 if board_name in excluded_boards:
                     if verbose: print(f'excluding board {board_name} ({target_name})')
@@ -189,8 +208,6 @@ if (args.group):
     #   nuttx-0
     #   nuttx-1
     final_groups = []
-    temp_group = []
-    group_number = {}
     last_man = ''
     last_arch = ''
     SPLIT_LIMIT = 10
@@ -199,88 +216,80 @@ if (args.group):
         print(f'=:Architectures: [{grouped_targets.keys()}]')
     for arch in grouped_targets:
         if(verbose):
-            print(f'=:Processing: [{arch}] Last: [{last_arch}]')
-
-        if(last_arch == ''):
-            last_arch = arch
-        if(arch not in group_number):
-                group_number[arch] = 0
-
-        if(last_arch != arch and len(temp_group) > 0):
-
-            group_name = last_arch + "-" + str(group_number[last_arch])
-            group_number[last_arch] += 1
-            targets = comma_targets(temp_group)
-            if(verbose):
-                print(f'=:Orphan: [{arch}][{last_arch}][{targets}]')
-            final_groups.append({
-                "container": grouped_targets[last_arch]['container'],
-                "targets": targets,
-                "arch": last_arch,
-                "group": group_name,
-                "len": len(temp_group)
-            })
-            last_arch = arch
-            temp_group = []
-
+            print(f'=:Processing: [{arch}]')
+        temp_group = []
         for man in grouped_targets[arch]['manufacturers']:
             if(verbose):
                 print(f'=:Processing: [{arch}][{man}]')
-            for tar in grouped_targets[arch]['manufacturers'][man]:
-                man_len = len(grouped_targets[arch]['manufacturers'][man])
+            man_len = len(grouped_targets[arch]['manufacturers'][man])
+            if(man_len > LOWER_LIMIT and man_len < (SPLIT_LIMIT + 1)):
+                # Manufacturers can have their own group
                 if(verbose):
-                    print(f'=:Processing: [{arch}][{man}][{man_len}][{tar}]')
-                if(last_man != man):
-                    # if(verbose):
-                    #     print(f'=:Processing: [{arch}][{man}][{tar}][{man_len}]')
-                    if(man_len > LOWER_LIMIT and man_len < (SPLIT_LIMIT + 1)):
-                        # Manufacturers can have their own group
-                        if(verbose):
-                            print(f'=:Processing: ==Manufacturers can have their own group')
-                            print(f'=:Processing: Limits[{LOWER_LIMIT}][{SPLIT_LIMIT}]')
-                        group_name = arch + "-" + man
-                        targets = comma_targets(grouped_targets[arch]['manufacturers'][man])
-                        last_man = man
-                        final_groups.append({
-                            "container": grouped_targets[arch]['container'],
-                            "targets": targets,
-                            "arch": arch,
-                            "group": group_name,
-                            "len": len(grouped_targets[arch]['manufacturers'][man])
-                        })
-                    elif(man_len >= (SPLIT_LIMIT + 1)):
-                        # Split big man groups into subgroups
-                        # example: Pixhawk
-                        chunk_limit = SPLIT_LIMIT
-                        chunk_counter = 0
-                        for chunk in chunks(grouped_targets[arch]['manufacturers'][man], chunk_limit):
-                            group_name = arch + "-" + man + "-" + str(chunk_counter)
-                            targets = comma_targets(chunk)
-                            last_man = man
-                            final_groups.append({
-                                "container": grouped_targets[arch]['container'],
-                                "targets": targets,
-                                "arch": arch,
-                                "group": group_name,
-                                "len": len(chunk),
-                            })
-                            chunk_counter += 1
-                    else:
-                        temp_group.append(tar)
-
-            if(len(temp_group) > (LOWER_LIMIT - 1)):
-                group_name = arch + "-" + str(group_number[arch])
-                last_arch = arch
-                group_number[arch] += 1
-                targets = comma_targets(temp_group)
+                    print(f'=:Processing: [{arch}][{man}][{man_len}]==Manufacturers can have their own group')
+                group_name = arch + "-" + man
+                targets = comma_targets(grouped_targets[arch]['manufacturers'][man])
                 final_groups.append({
                     "container": grouped_targets[arch]['container'],
                     "targets": targets,
                     "arch": arch,
                     "group": group_name,
-                    "len": len(temp_group)
+                    "len": len(grouped_targets[arch]['manufacturers'][man])
                 })
-                temp_group = []
+            elif(man_len >= (SPLIT_LIMIT + 1)):
+                # Split big man groups into subgroups
+                # example: Pixhawk
+                if(verbose):
+                    print(f'=:Processing: [{arch}][{man}][{man_len}]==Manufacturers has multiple own groups')
+                chunk_limit = SPLIT_LIMIT
+                chunk_counter = 0
+                for chunk in chunks(grouped_targets[arch]['manufacturers'][man], chunk_limit):
+                    group_name = arch + "-" + man + "-" + str(chunk_counter)
+                    targets = comma_targets(chunk)
+                    final_groups.append({
+                        "container": grouped_targets[arch]['container'],
+                        "targets": targets,
+                        "arch": arch,
+                        "group": group_name,
+                        "len": len(chunk),
+                    })
+                    chunk_counter += 1
+            else:
+                if(verbose):
+                    print(f'=:Processing: [{arch}][{man}][{man_len}]==Manufacturers too small group with others')
+                temp_group.extend(grouped_targets[arch]['manufacturers'][man])
+
+        temp_len = len(temp_group)
+        chunk_counter = 0
+        if(temp_len > 0 and temp_len < (SPLIT_LIMIT + 1)):
+            if(verbose):
+                print(f'=:Processing: [{arch}][orphan][{temp_len}]==Leftover arch can have their own group')
+            group_name = arch + "-" + str(chunk_counter)
+            targets = comma_targets(temp_group)
+            final_groups.append({
+                "container": grouped_targets[arch]['container'],
+                "targets": targets,
+                "arch": arch,
+                "group": group_name,
+                "len": temp_len
+            })
+        elif(temp_len >= (SPLIT_LIMIT + 1)):
+            # Split big man groups into subgroups
+            # example: Pixhawk
+            if(verbose):
+                print(f'=:Processing: [{arch}][orphan][{temp_len}]==Leftover arch can has multpile group')
+            chunk_limit = SPLIT_LIMIT
+            chunk_counter = 0
+            for chunk in chunks(temp_group, chunk_limit):
+                group_name = arch + "-" + str(chunk_counter)
+                targets = comma_targets(chunk)
+                final_groups.append({
+                    "container": grouped_targets[arch]['container'],
+                    "targets": targets,
+                    "arch": arch,
+                    "group": group_name,
+                    "len": len(chunk),
+                })
+                chunk_counter += 1
     if(verbose):
         import pprint
         print("================")
